@@ -1,2 +1,2 @@
-# verdict-ai
+# synod-ai
 Evidence-Grounded Purchase Council
