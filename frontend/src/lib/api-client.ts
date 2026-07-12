@@ -147,68 +147,75 @@ export class ApiError extends Error {
 
 export const sessionsApi = {
   create: (req: CreateSessionRequest) =>
-    apiFetch<CouncilState>('/council/sessions', {
+    apiFetch<CouncilState>('/sessions', {
       method: 'POST',
       body: JSON.stringify(req),
     }),
 
   get: (sessionId: string) =>
-    apiFetch<CouncilState>(`/council/sessions/${sessionId}`),
+    apiFetch<CouncilState>(`/sessions/${sessionId}`),
 
   list: () =>
-    apiFetch<SessionSummary[]>('/council/sessions'),
+    apiFetch<SessionSummary[]>('/sessions'),
 
   getStreamUrl: (sessionId: string) =>
-    `${API_BASE}/api/v1/council/sessions/${sessionId}/stream`,
+    `${API_BASE}/api/v1/sessions/${sessionId}/stream`,
 };
 
 // ─── Providers ────────────────────────────────────────────────────────────
 
 export const providersApi = {
   saveKey: (req: ProviderKeyRequest) =>
-    apiFetch<{ ok: boolean }>('/providers/keys', {
+    apiFetch<{ ok: boolean }>('/providers', {
       method: 'POST',
       body: JSON.stringify(req),
     }),
 
   testConnection: (provider: Provider) =>
-    apiFetch<TestConnectionResult>('/providers/test', {
+    apiFetch<TestConnectionResult>(`/providers/${provider}/test`, {
       method: 'POST',
-      body: JSON.stringify({ provider }),
+      body: JSON.stringify({ api_key: "dummy" }), // Using test endpoint req schema
     }),
 
   listModels: (provider: Provider) =>
     apiFetch<ModelInfo[]>(`/providers/${provider}/models`),
 
   getConfiguredProviders: () =>
-    apiFetch<Array<{ provider: Provider; configured: boolean }>>('/providers/configured'),
+    apiFetch<Array<{ provider: Provider; configured: boolean }>>('/providers'), // we mapped this to GET /providers
 };
 
 // ─── Integrations ─────────────────────────────────────────────────────────
 
 export const integrationsApi = {
+  getStatus: () =>
+    apiFetch<{
+      research: { tavily: boolean; anakin: boolean };
+      notion: { connected: boolean };
+      langfuse: { connected: boolean };
+    }>('/research/keys'), // placeholder mapping until specific status endpoint built
+
   saveResearchKey: (provider: ResearchProvider, api_key: string) =>
-    apiFetch<{ ok: boolean }>(`/integrations/research/${provider}/keys`, {
+    apiFetch<{ ok: boolean }>(`/research/keys`, {
       method: 'POST',
-      body: JSON.stringify({ api_key }),
+      body: JSON.stringify({ provider, api_key }),
     }),
 
   testResearchConnection: (provider: ResearchProvider) =>
-    apiFetch<TestConnectionResult>('/integrations/research/test', {
+    apiFetch<TestConnectionResult>(`/research/keys/${provider}/test`, {
       method: 'POST',
-      body: JSON.stringify({ provider }),
+      body: JSON.stringify({ api_key: "dummy" }),
     }),
 
   connectNotion: () =>
-    apiFetch<{ auth_url: string }>('/integrations/notion/connect', { method: 'POST' }),
+    apiFetch<{ auth_url: string }>('/notion/connect', { method: 'POST' }),
 
   publishToNotion: (sessionId: string) =>
-    apiFetch<{ notion_page_url: string }>(`/integrations/notion/publish/${sessionId}`, {
+    apiFetch<{ notion_page_url: string }>(`/notion/publish/${sessionId}`, {
       method: 'POST',
     }),
 
   saveLangfuseKeys: (public_key: string, secret_key: string, host?: string) =>
-    apiFetch<{ ok: boolean }>('/integrations/langfuse/keys', {
+    apiFetch<{ ok: boolean }>('/observability/keys', {
       method: 'POST',
       body: JSON.stringify({ public_key, secret_key, host }),
     }),
@@ -219,4 +226,14 @@ export const integrationsApi = {
 export const observabilityApi = {
   getTraceUrl: (traceId: string) =>
     `${API_BASE}/api/v1/observability/trace/${traceId}`,
+};
+
+// ─── System ───────────────────────────────────────────────────────────────
+
+export const systemApi = {
+  checkHealth: async () => {
+    const res = await fetch(`${API_BASE}/health`);
+    if (!res.ok) throw new Error('Backend not reachable');
+    return res.json() as Promise<{ status: string }>;
+  }
 };

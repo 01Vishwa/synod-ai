@@ -78,32 +78,11 @@ function NavLink({ href, children, id }: NavLinkProps) {
     <Link
       href={href}
       id={id}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--space-2)',
-        padding: 'var(--space-2) var(--space-4)',
-        fontSize: 'var(--text-sm)',
-        fontWeight: isActive ? 600 : 400,
-        color: isActive ? 'var(--grey-0)' : 'var(--color-text-muted)',
-        textDecoration: 'none',
-        borderRadius: 'var(--radius-sm)',
-        transition: 'background-color var(--transition-fast), color var(--transition-fast)',
-        background: isActive ? 'var(--grey-93)' : 'transparent',
-        margin: '0 var(--space-2)',
-      }}
-      onMouseEnter={(e) => {
-        if (!isActive) {
-          (e.currentTarget as HTMLElement).style.background = 'var(--grey-93)';
-          (e.currentTarget as HTMLElement).style.color = 'var(--grey-0)';
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (!isActive) {
-          (e.currentTarget as HTMLElement).style.background = 'transparent';
-          (e.currentTarget as HTMLElement).style.color = 'var(--color-text-muted)';
-        }
-      }}
+      className={`flex items-center gap-2 px-4 py-2 text-sm rounded transition-colors mx-2 no-underline
+        ${isActive 
+          ? 'font-semibold text-black bg-grey-93' 
+          : 'font-normal text-muted hover:bg-grey-93 hover:text-black'
+        }`}
     >
       {children}
     </Link>
@@ -121,7 +100,7 @@ export function SessionHistorySidebar() {
       .then(setSessions)
       .catch(() => setSessions([]))
       .finally(() => setLoading(false));
-  }, [pathname]); // re-fetch on route change
+  }, [pathname]);
 
   const filtered = sessions.filter((s) =>
     s.user_query.toLowerCase().includes(search.toLowerCase()) ||
@@ -129,22 +108,13 @@ export function SessionHistorySidebar() {
   );
 
   return (
-    <nav
-      aria-label="Sidebar navigation"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        paddingTop: 'var(--space-4)',
-      }}
-    >
+    <nav aria-label="Sidebar navigation" className="flex flex-col h-full pt-4">
       {/* Primary actions */}
-      <div style={{ padding: '0 var(--space-4)', marginBottom: 'var(--space-4)' }}>
-        <Link href="/" style={{ textDecoration: 'none', display: 'block' }}>
+      <div className="px-4 mb-4">
+        <Link href="/" className="block no-underline">
           <button
             id="sidebar-new-session-btn"
-            className="btn-primary"
-            style={{ width: '100%', justifyContent: 'center' }}
+            className="w-full flex items-center justify-center gap-2 bg-black text-white px-6 py-3 font-semibold text-sm rounded border-2 border-black hover:bg-grey-10 transition-colors"
           >
             <PlusIcon />
             New Session
@@ -153,14 +123,7 @@ export function SessionHistorySidebar() {
       </div>
 
       {/* Main nav */}
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 'var(--space-1)',
-          marginBottom: 'var(--space-4)',
-        }}
-      >
+      <div className="flex flex-col gap-1 mb-4">
         <NavLink href="/history" id="sidebar-history-link">
           <ClockIcon />
           History
@@ -174,51 +137,17 @@ export function SessionHistorySidebar() {
         </NavLink>
       </div>
 
-      <div
-        style={{
-          height: '1px',
-          background: 'var(--color-border)',
-          margin: '0 var(--space-4) var(--space-4)',
-        }}
-      />
+      <div className="h-px bg-border mx-4 mb-4" />
 
       {/* Recent Sessions */}
-      <div
-        style={{
-          padding: '0 var(--space-4)',
-          marginBottom: 'var(--space-2)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 'var(--space-2)',
-          flex: 1,
-          overflow: 'hidden',
-        }}
-      >
-        <p
-          style={{
-            fontSize: 'var(--text-xs)',
-            fontWeight: 600,
-            color: 'var(--color-text-subtle)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-            marginBottom: 'var(--space-1)',
-          }}
-        >
+      <div className="px-4 mb-2 flex flex-col gap-2 flex-1 overflow-hidden">
+        <p className="text-xs font-semibold text-subtle uppercase tracking-widest mb-1">
           Recent Sessions
         </p>
 
         {/* Search */}
-        <div style={{ position: 'relative' }}>
-          <span
-            style={{
-              position: 'absolute',
-              left: 'var(--space-2)',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: 'var(--color-text-subtle)',
-              pointerEvents: 'none',
-            }}
-          >
+        <div className="relative">
+          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-subtle pointer-events-none">
             <SearchIcon />
           </span>
           <input
@@ -228,45 +157,25 @@ export function SessionHistorySidebar() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             aria-label="Search past sessions"
-            style={{
-              paddingLeft: '28px',
-              fontSize: 'var(--text-xs)',
-              height: '32px',
-            }}
+            className="w-full pl-7 text-xs h-8 bg-background border border-border rounded focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all placeholder-subtle text-foreground"
           />
         </div>
 
         {/* Session list */}
-        <div
-          style={{
-            overflowY: 'auto',
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--space-1)',
-          }}
-        >
+        <div className="overflow-y-auto flex-1 flex flex-col gap-1">
           {loading && (
             <>
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
-                  className="skeleton"
-                  style={{ height: '60px', borderRadius: 'var(--radius-sm)' }}
+                  className="bg-grey-93 rounded h-[60px] animate-pulse"
                 />
               ))}
             </>
           )}
 
           {!loading && filtered.length === 0 && (
-            <div
-              style={{
-                padding: 'var(--space-4)',
-                textAlign: 'center',
-                fontSize: 'var(--text-xs)',
-                color: 'var(--color-text-subtle)',
-              }}
-            >
+            <div className="p-4 text-center text-xs text-subtle">
               {search ? 'No sessions match your search.' : 'No sessions yet.'}
             </div>
           )}
@@ -277,42 +186,20 @@ export function SessionHistorySidebar() {
               <Link
                 key={session.session_id}
                 href={`/sessions/${session.session_id}`}
-                style={{ textDecoration: 'none' }}
+                className="no-underline"
               >
                 <div
-                  style={{
-                    padding: 'var(--space-2) var(--space-3)',
-                    borderRadius: 'var(--radius-sm)',
-                    border: isActive ? '2px solid var(--grey-0)' : '1px solid var(--color-border)',
-                    background: isActive ? 'var(--grey-93)' : 'var(--color-bg)',
-                    cursor: 'pointer',
-                    transition: 'border-color var(--transition-fast)',
-                  }}
+                  className={`px-3 py-2 rounded border transition-colors cursor-pointer
+                    ${isActive 
+                      ? 'border-2 border-black bg-grey-93' 
+                      : 'border border-border bg-background hover:bg-grey-93/50'
+                    }`}
                 >
-                  <div
-                    style={{
-                      fontSize: 'var(--text-xs)',
-                      fontWeight: 600,
-                      color: 'var(--color-text)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      marginBottom: 'var(--space-1)',
-                    }}
-                  >
+                  <div className="text-xs font-semibold text-foreground overflow-hidden text-ellipsis whitespace-nowrap mb-1">
                     {session.user_query}
                   </div>
-                  <div
-                    style={{
-                      fontSize: '11px',
-                      color: 'var(--color-text-subtle)',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>
-                      {stageBadge(session.stage)}
-                    </span>
+                  <div className="text-[11px] text-subtle flex justify-between">
+                    <span className="font-mono">{stageBadge(session.stage)}</span>
                     <span>{formatDate(session.created_at)}</span>
                   </div>
                 </div>

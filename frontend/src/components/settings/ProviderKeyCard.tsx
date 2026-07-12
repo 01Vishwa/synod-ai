@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import type { Provider } from '@/lib/api-client';
 import { providersApi } from '@/lib/api-client';
+import { useToast } from '@/hooks/useToast';
 
 interface ProviderKeyCardProps {
   provider: Provider;
@@ -23,88 +24,69 @@ export function ProviderKeyCard({
 }: ProviderKeyCardProps) {
   const [key, setKey] = useState('');
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const { toast } = useToast();
 
   async function handleSave() {
     const trimmedKey = key.trim();
-    if (!trimmedKey) {
-      setTestResult({ success: false, message: 'API key is required.' });
-      return;
-    }
-    if (trimmedKey.length < 10) {
-      setTestResult({ success: false, message: 'API key is too short.' });
-      return;
-    }
+    if (!trimmedKey) { toast('API key is required.', 'error'); return; }
+    if (trimmedKey.length < 10) { toast('API key is too short.', 'error'); return; }
 
     setSaving(true);
-    setTestResult(null);
     try {
-      // Backend will perform format validation, test connection, and then save
       await providersApi.saveKey({ provider, api_key: trimmedKey });
       setKey('');
-      setTestResult({ success: true, message: 'Successfully connected and saved.' });
-      onUpdate(); // refresh configured status
+      toast('Successfully connected and saved.', 'success');
+      onUpdate();
     } catch (err) {
-      setTestResult({ success: false, message: err instanceof Error ? err.message : 'Failed to validate or save key.' });
+      toast(err instanceof Error ? err.message : 'Failed to validate or save key.', 'error');
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+    <div className="bg-background border border-border rounded-md p-6 flex flex-col gap-4">
       {retirementWarning && (
-        <div style={{ padding: 'var(--space-3)', border: '2px solid var(--grey-0)', borderRadius: 'var(--radius-sm)', background: 'var(--grey-10)' }}>
-          <p style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--grey-100)' }}>
+        <div className="p-3 border-2 border-black rounded-sm bg-grey-10">
+          <p className="m-0 text-sm font-semibold text-white">
             ⚠️ {retirementWarning}
           </p>
         </div>
       )}
 
       <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 style={{ fontSize: 'var(--text-lg)', marginBottom: 'var(--space-1)' }}>{title}</h3>
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-display font-bold mb-1">{title}</h3>
           {isConfigured ? (
-            <span className="badge">✓ Connected</span>
+            <span className="inline-flex items-center font-mono text-xs font-semibold px-2 py-0.5 border border-black rounded-sm bg-background text-foreground whitespace-nowrap">
+              ✓ Connected
+            </span>
           ) : (
-            <span className="badge badge-muted">Not connected</span>
+            <span className="inline-flex items-center font-mono text-xs font-semibold px-2 py-0.5 border border-border rounded-sm bg-background text-muted whitespace-nowrap">
+              Not connected
+            </span>
           )}
         </div>
-        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-subtle)', margin: 0 }}>
-          {description}
-        </p>
+        <p className="text-sm text-subtle m-0">{description}</p>
       </div>
 
-      <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+      <div className="flex gap-3">
         <input
           type="password"
           placeholder={isConfigured ? 'Enter new key to replace existing…' : 'Enter API key…'}
           value={key}
           onChange={(e) => setKey(e.target.value)}
-          style={{ flex: 1, fontFamily: 'var(--font-mono)' }}
+          className="flex-1 font-mono text-sm bg-background border border-border rounded px-3 py-2 focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all placeholder-subtle"
+          onKeyDown={(e) => e.key === 'Enter' && handleSave()}
         />
         <button
-          className="btn-primary"
+          className="bg-black text-white px-5 py-2 border-2 border-black font-semibold text-sm rounded hover:bg-grey-10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           onClick={handleSave}
           disabled={!key.trim() || saving}
         >
           {saving ? 'Connecting…' : 'Connect'}
         </button>
       </div>
-
-      {testResult && (
-        <div
-          style={{
-            fontSize: 'var(--text-sm)',
-            fontWeight: testResult.success ? 400 : 600,
-            color: 'var(--color-text)',
-            fontFamily: 'var(--font-mono)',
-          }}
-        >
-          {testResult.success ? '✓ ' : '✕ '}{testResult.message}
-        </div>
-      )}
     </div>
   );
 }

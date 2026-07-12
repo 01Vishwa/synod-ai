@@ -11,56 +11,52 @@ export default function ProvidersSettingsPage() {
     nvidia_nim: false,
     github_models: false,
   });
-
   const [loading, setLoading] = useState(true);
 
   async function fetchStatus() {
     try {
       const data = await providersApi.getConfiguredProviders();
       const status = { openrouter: false, nvidia_nim: false, github_models: false };
-      data.forEach((p) => {
-        status[p.provider] = p.configured;
-      });
+      data.forEach((p) => { status[p.provider] = p.configured; });
       setConfigured(status);
     } catch {
-      // gracefully handle error or missing backend
+      // gracefully handle missing backend
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    fetchStatus();
-  }, []);
+  useEffect(() => { fetchStatus(); }, []);
 
   if (loading) {
     return (
-      <div style={{ maxWidth: '720px', margin: '0 auto', padding: 'var(--space-8) var(--content-gutter)' }}>
+      <div className="max-w-[720px] mx-auto px-6 py-8">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="skeleton" style={{ height: '200px', marginBottom: 'var(--space-4)' }} />
+          <div key={i} className="h-[200px] mb-4 bg-grey-93 rounded-md animate-pulse" />
         ))}
       </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: '720px', margin: '0 auto', padding: 'var(--space-8) var(--content-gutter)' }}>
-      <div style={{ marginBottom: 'var(--space-6)' }}>
-        <Link href="/" style={{ textDecoration: 'none', color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+    <div className="max-w-[720px] mx-auto px-6 py-8">
+      <div className="mb-6">
+        <Link
+          href="/"
+          className="no-underline text-muted text-sm inline-flex items-center gap-2 hover:text-foreground transition-colors"
+        >
           <span>←</span> Back to Council
         </Link>
       </div>
 
-      <div style={{ marginBottom: 'var(--space-8)' }}>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--text-2xl)', fontWeight: 700, marginBottom: 'var(--space-2)' }}>
-          Model Providers
-        </h1>
-        <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)' }}>
+      <div className="mb-8">
+        <h1 className="font-display text-3xl font-bold mb-2">Model Providers</h1>
+        <p className="text-muted text-sm m-0">
           Synod connects exclusively to these three inference providers. Your keys are encrypted at rest and never shared.
         </p>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+      <div className="flex flex-col gap-6">
         <ProviderKeyCard
           provider="openrouter"
           title="OpenRouter"

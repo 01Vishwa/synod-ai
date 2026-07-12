@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import type { ResearchProvider } from '@/lib/api-client';
 import { integrationsApi } from '@/lib/api-client';
+import { useToast } from '@/hooks/useToast';
 
 interface ResearchProviderCardProps {
   provider: ResearchProvider;
@@ -21,30 +22,28 @@ export function ResearchProviderCard({
 }: ResearchProviderCardProps) {
   const [key, setKey] = useState('');
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const { toast } = useToast();
 
   async function handleSave() {
     const trimmedKey = key.trim();
     if (!trimmedKey) {
-      setTestResult({ success: false, message: 'API key is required.' });
+      toast('API key is required.', 'error');
       return;
     }
     if (trimmedKey.length < 10) {
-      setTestResult({ success: false, message: 'API key is too short.' });
+      toast('API key is too short.', 'error');
       return;
     }
 
     setSaving(true);
-    setTestResult(null);
     try {
       // Backend will perform format validation, test connection, and then save
       await integrationsApi.saveResearchKey(provider, trimmedKey);
       setKey('');
-      setTestResult({ success: true, message: 'Successfully connected and saved.' });
+      toast('Successfully connected and saved.', 'success');
       onUpdate();
     } catch (err) {
-      setTestResult({ success: false, message: err instanceof Error ? err.message : 'Failed to validate or save key.' });
+      toast(err instanceof Error ? err.message : 'Failed to validate or save key.', 'error');
     } finally {
       setSaving(false);
     }
@@ -82,19 +81,6 @@ export function ResearchProviderCard({
           {saving ? 'Connecting…' : 'Connect'}
         </button>
       </div>
-
-      {testResult && (
-        <div
-          style={{
-            fontSize: 'var(--text-sm)',
-            fontWeight: testResult.success ? 400 : 600,
-            color: 'var(--color-text)',
-            fontFamily: 'var(--font-mono)',
-          }}
-        >
-          {testResult.success ? '✓ ' : '✕ '}{testResult.message}
-        </div>
-      )}
     </div>
   );
 }

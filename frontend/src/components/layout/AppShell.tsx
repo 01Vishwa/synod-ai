@@ -31,15 +31,7 @@ function CloseIcon() {
 
 function SynodWordmark() {
   return (
-    <span
-      style={{
-        fontFamily: 'var(--font-display)',
-        fontWeight: 700,
-        fontSize: '18px',
-        letterSpacing: '-0.5px',
-        color: 'var(--grey-0)',
-      }}
-    >
+    <span className="font-display font-bold text-lg tracking-tight text-black">
       SYNOD
     </span>
   );
@@ -54,55 +46,35 @@ function Header({ onMenuToggle, isMobileMenuOpen }: HeaderProps) {
   return (
     <header
       role="banner"
-      style={{
-        height: 'var(--header-height)',
-        borderBottom: '1px solid var(--color-border)',
-        background: 'var(--color-bg)',
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0 var(--space-6)',
-        gap: 'var(--space-4)',
-        position: 'sticky',
-        top: 0,
-        zIndex: 50,
-      }}
+      className="sticky top-0 z-50 flex items-center h-14 px-6 gap-4 border-b border-border bg-background"
     >
       <button
         id="mobile-menu-toggle"
-        className="btn-ghost"
+        className="md:hidden flex items-center justify-center p-2 text-foreground hover:bg-grey-93 rounded"
         onClick={onMenuToggle}
         aria-label={isMobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
         aria-expanded={isMobileMenuOpen}
-        style={{ display: 'none' }}
-        data-mobile-only="true"
       >
         {isMobileMenuOpen ? <CloseIcon /> : <MenuIcon />}
       </button>
 
-      <Link href="/" style={{ textDecoration: 'none' }}>
+      <Link href="/" className="no-underline hover:opacity-80 transition-opacity">
         <SynodWordmark />
       </Link>
 
-      <span
-        style={{
-          fontSize: 'var(--text-xs)',
-          color: 'var(--color-text-subtle)',
-          fontFamily: 'var(--font-mono)',
-          marginLeft: 'var(--space-2)',
-        }}
-      >
+      <span className="hidden sm:inline text-xs text-subtle font-mono ml-2">
         Where Models Convene, Truth Concludes.
       </span>
 
-      <div style={{ flex: 1 }} />
+      <div className="flex-1" />
 
-      <Link href="/settings/providers" style={{ textDecoration: 'none' }}>
-        <button className="btn-ghost btn-sm" id="header-settings-link">
+      <Link href="/settings/providers" className="no-underline">
+        <button className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium border border-transparent hover:bg-grey-93 rounded transition-colors" id="header-settings-link">
           <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
             <circle cx="10" cy="10" r="3" />
             <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.22 4.22l1.42 1.42M14.36 14.36l1.42 1.42M4.22 15.78l1.42-1.42M14.36 5.64l1.42-1.42" />
           </svg>
-          <span>Settings</span>
+          <span className="hidden sm:inline">Settings</span>
         </button>
       </Link>
     </header>
@@ -130,40 +102,18 @@ export function AppShell({ children }: AppShellProps) {
   }, []);
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight: '100vh',
-        background: 'var(--color-bg)',
-      }}
-    >
+    <div className="flex flex-col min-h-screen bg-background">
       <Header
         onMenuToggle={() => setIsMobileMenuOpen((v) => !v)}
         isMobileMenuOpen={isMobileMenuOpen}
       />
 
-      <div
-        style={{
-          display: 'flex',
-          flex: 1,
-          overflow: 'hidden',
-          position: 'relative',
-        }}
-      >
+      <div className="flex flex-1 overflow-hidden relative">
         <aside
           id="desktop-sidebar"
           aria-label="Session navigation"
-          style={{
-            width: 'var(--sidebar-width)',
-            minWidth: 'var(--sidebar-width)',
-            borderRight: '1px solid var(--color-border)',
-            background: 'var(--color-bg)',
-            overflowY: 'auto',
-            height: 'calc(100vh - var(--header-height))',
-            position: 'sticky',
-            top: 'var(--header-height)',
-          }}
+          className="hidden md:block w-60 min-w-60 border-r border-border bg-background overflow-y-auto sticky top-14"
+          style={{ height: 'calc(100vh - 56px)' }}
         >
           <SessionHistorySidebar />
         </aside>
@@ -173,29 +123,13 @@ export function AppShell({ children }: AppShellProps) {
             <div
               id="mobile-overlay"
               onClick={() => setIsMobileMenuOpen(false)}
-              style={{
-                position: 'fixed',
-                inset: 0,
-                background: 'rgba(0,0,0,0.5)',
-                zIndex: 40,
-              }}
+              className="fixed inset-0 bg-black/50 z-40 md:hidden"
               aria-hidden="true"
             />
             <aside
               id="mobile-sidebar"
               aria-label="Session navigation"
-              style={{
-                position: 'fixed',
-                top: 'var(--header-height)',
-                left: 0,
-                bottom: 0,
-                width: 'var(--sidebar-width)',
-                background: 'var(--color-bg)',
-                borderRight: '1px solid var(--color-border)',
-                overflowY: 'auto',
-                zIndex: 45,
-                animation: 'fadeIn 200ms ease',
-              }}
+              className="fixed top-14 left-0 bottom-0 w-60 bg-background border-r border-border overflow-y-auto z-45 animate-fade-in md:hidden"
             >
               <SessionHistorySidebar />
             </aside>
@@ -205,22 +139,12 @@ export function AppShell({ children }: AppShellProps) {
         <main
           id="main-content"
           role="main"
-          style={{
-            flex: 1,
-            overflowY: 'auto',
-            height: 'calc(100vh - var(--header-height))',
-          }}
+          className="flex-1 overflow-y-auto"
+          style={{ height: 'calc(100vh - 56px)' }}
         >
           {children}
         </main>
       </div>
-
-      <style>{`
-        @media (max-width: 768px) {
-          #desktop-sidebar { display: none; }
-          button[data-mobile-only] { display: inline-flex !important; }
-        }
-      `}</style>
     </div>
   );
 }

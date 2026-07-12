@@ -8,8 +8,10 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import type { Provider, ResearchProvider, ModelInfo } from '@/lib/api-client';
-import { sessionsApi, providersApi } from '@/lib/api-client';
+import { sessionsApi, providersApi, systemApi } from '@/lib/api-client';
+import { useToast } from '@/hooks/useToast';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -33,18 +35,53 @@ function generateMemberId() {
 
 // ─── Sub-components ───────────────────────────────────────────────────────
 
+interface ToggleProps {
+  id: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  description?: React.ReactNode;
+  disabled?: boolean;
+}
+
+function Toggle({ id, checked, onChange, label, description, disabled }: ToggleProps) {
+  return (
+    <label
+      htmlFor={id}
+      className={`flex items-start gap-3 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+    >
+      <div className="relative mt-[2px]">
+        <input
+          id={id}
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.checked)}
+          className="absolute opacity-0 w-0 h-0"
+        />
+        <div
+          className={`w-10 h-[22px] rounded-full relative transition-colors ${checked ? 'bg-black' : 'bg-grey-85'}`}
+        >
+          <div
+            className={`w-4 h-4 rounded-full bg-white absolute top-[3px] transition-all ${checked ? 'left-[21px]' : 'left-[3px]'}`}
+          />
+        </div>
+      </div>
+      <div>
+        <div className="text-sm font-semibold">{label}</div>
+        {description && (
+          <div className="text-xs text-subtle mt-0.5">
+            {description}
+          </div>
+        )}
+      </div>
+    </label>
+  );
+}
+
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p
-      style={{
-        fontSize: 'var(--text-xs)',
-        fontWeight: 700,
-        textTransform: 'uppercase',
-        letterSpacing: '0.1em',
-        color: 'var(--color-text-subtle)',
-        marginBottom: 'var(--space-2)',
-      }}
-    >
+    <p className="text-xs font-bold uppercase tracking-widest text-subtle mb-2">
       {children}
     </p>
   );
@@ -75,51 +112,22 @@ function MemberCard({
 
   return (
     <div
-      style={{
-        border: isChairman ? '2px solid var(--grey-0)' : '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-md)',
-        padding: 'var(--space-4)',
-        background: isChairman ? 'var(--grey-93)' : 'var(--color-bg)',
-        transition: 'border-color var(--transition-fast)',
-        animation: 'fadeIn 200ms ease',
-      }}
+      className={`p-4 rounded-md transition-colors animate-fade-in border
+        ${isChairman ? 'border-2 border-black bg-grey-93' : 'border-border bg-background'}`}
     >
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 'var(--space-3)',
-        }}
-      >
-        <span
-          style={{
-            fontFamily: 'var(--font-display)',
-            fontWeight: 700,
-            fontSize: 'var(--text-sm)',
-          }}
-        >
+      <div className="flex justify-between items-center mb-3">
+        <span className="font-display font-bold text-sm">
           Council Seat {index + 1}
           {isChairman && (
-            <span
-              style={{
-                marginLeft: 'var(--space-2)',
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--text-xs)',
-                fontWeight: 400,
-                padding: '1px 6px',
-                border: '1px solid var(--grey-0)',
-                borderRadius: 'var(--radius-sm)',
-              }}
-            >
+            <span className="ml-2 font-mono text-xs font-normal px-1.5 py-px border border-black rounded-sm">
               CHAIRMAN
             </span>
           )}
         </span>
-        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+        <div className="flex gap-2">
           {!isChairman && (
             <button
-              className="btn-ghost btn-sm"
+              className="px-2 py-1 text-xs font-medium border border-transparent hover:bg-grey-93 rounded transition-colors"
               onClick={() => onSetChairman(member.id)}
               title="Set as Chairman"
               aria-label={`Set Council Seat ${index + 1} as Chairman`}
@@ -128,7 +136,7 @@ function MemberCard({
             </button>
           )}
           <button
-            className="btn-ghost btn-sm"
+            className="px-2 py-1 text-xs font-medium border border-transparent hover:bg-grey-93 rounded transition-colors"
             onClick={() => onRemove(member.id)}
             aria-label={`Remove Council Seat ${index + 1}`}
           >
@@ -137,13 +145,10 @@ function MemberCard({
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {/* Provider */}
         <div>
-          <label
-            htmlFor={`provider-${member.id}`}
-            style={{ fontSize: 'var(--text-xs)', fontWeight: 600, display: 'block', marginBottom: 'var(--space-1)' }}
-          >
+          <label htmlFor={`provider-${member.id}`} className="block text-xs font-semibold mb-1">
             Provider
           </label>
           <select
@@ -152,6 +157,7 @@ function MemberCard({
             onChange={(e) =>
               onUpdate(member.id, { provider: e.target.value as Provider, model_id: '' })
             }
+            className="w-full text-base sm:text-sm bg-background border border-border rounded px-2 py-1.5 focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all"
           >
             {PROVIDERS.map((p) => (
               <option key={p.value} value={p.value}>
@@ -163,19 +169,17 @@ function MemberCard({
 
         {/* Model */}
         <div>
-          <label
-            htmlFor={`model-${member.id}`}
-            style={{ fontSize: 'var(--text-xs)', fontWeight: 600, display: 'block', marginBottom: 'var(--space-1)' }}
-          >
+          <label htmlFor={`model-${member.id}`} className="block text-xs font-semibold mb-1">
             Model
           </label>
           {loadingModels[member.provider] ? (
-            <div className="skeleton" style={{ height: '38px', borderRadius: 'var(--radius-sm)' }} />
+            <div className="h-[34px] rounded bg-grey-93 animate-pulse" />
           ) : (
             <select
               id={`model-${member.id}`}
               value={member.model_id}
               onChange={(e) => onUpdate(member.id, { model_id: e.target.value })}
+              className="w-full text-base sm:text-sm bg-background border border-border rounded px-2 py-1.5 focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all"
             >
               <option value="">Select model…</option>
               {providerModels.map((m) => (
@@ -189,11 +193,8 @@ function MemberCard({
       </div>
 
       {/* Display label */}
-      <div style={{ marginTop: 'var(--space-3)' }}>
-        <label
-          htmlFor={`label-${member.id}`}
-          style={{ fontSize: 'var(--text-xs)', fontWeight: 600, display: 'block', marginBottom: 'var(--space-1)' }}
-        >
+      <div className="mt-3">
+        <label htmlFor={`label-${member.id}`} className="block text-xs font-semibold mb-1">
           Display label (optional)
         </label>
         <input
@@ -202,6 +203,7 @@ function MemberCard({
           placeholder={`Council Seat ${index + 1}`}
           value={member.display_label}
           onChange={(e) => onUpdate(member.id, { display_label: e.target.value })}
+          className="w-full text-base sm:text-sm bg-background border border-border rounded px-2 py-1.5 focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all placeholder-subtle"
         />
       </div>
     </div>
@@ -219,6 +221,23 @@ export default function NewSessionPage() {
   const [chairmanId, setChairmanId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  const [researchEnabled, setResearchEnabled] = useState(false);
+  const [researchProvider, setResearchProvider] = useState<ResearchProvider>('tavily');
+  const [archiveToNotion, setArchiveToNotion] = useState(false);
+  const [notionConnected, setNotionConnected] = useState(false);
+
+  useEffect(() => {
+    setResearchEnabled(localStorage.getItem('synod_research_enabled') === 'true');
+    setResearchProvider((localStorage.getItem('synod_research_provider') as ResearchProvider) || 'tavily');
+    setArchiveToNotion(localStorage.getItem('synod_archive_notion') === 'true');
+    setNotionConnected(localStorage.getItem('synod_notion_connected') === 'true');
+
+    systemApi.checkHealth()
+      .then(() => toast('Backend Connected', 'success'))
+      .catch(() => toast('Backend Unreachable', 'error'));
+  }, [toast]);
 
   const [models, setModels] = useState<Record<Provider, ModelInfo[]>>({
     openrouter: [],
@@ -231,7 +250,6 @@ export default function NewSessionPage() {
     github_models: false,
   });
 
-  // Fetch model catalog for a provider
   const fetchModels = useCallback(async (provider: Provider) => {
     if (models[provider].length > 0) return;
     setLoadingModels((prev) => ({ ...prev, [provider]: true }));
@@ -239,19 +257,17 @@ export default function NewSessionPage() {
       const list = await providersApi.listModels(provider);
       setModels((prev) => ({ ...prev, [provider]: list }));
     } catch {
-      // Provider not configured yet — show empty list with graceful message
+      // ignore
     } finally {
       setLoadingModels((prev) => ({ ...prev, [provider]: false }));
     }
   }, [models]);
 
-  // Auto-fetch models for all providers used by current members
   useEffect(() => {
     const providers = [...new Set(members.map((m) => m.provider))];
     providers.forEach(fetchModels);
   }, [members, fetchModels]);
 
-  // Auto-grow textarea
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -259,7 +275,6 @@ export default function NewSessionPage() {
     ta.style.height = `${Math.max(120, ta.scrollHeight)}px`;
   }, [query]);
 
-  // Keyboard shortcut: Cmd/Ctrl+Enter to submit
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !submitting) {
@@ -300,7 +315,6 @@ export default function NewSessionPage() {
     );
   }
 
-  // Validation
   const configured = members.filter((m) => m.model_id);
   const canConvene = query.trim().length >= 10 && configured.length >= 3;
   const validationMessage =
@@ -315,10 +329,6 @@ export default function NewSessionPage() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const researchEnabled = localStorage.getItem('synod_research_enabled') === 'true';
-      const researchProvider = (localStorage.getItem('synod_research_provider') || 'tavily') as ResearchProvider;
-      const archiveToNotion = localStorage.getItem('synod_archive_notion') === 'true';
-
       const session = await sessionsApi.create({
         user_query: query.trim(),
         members: members
@@ -336,45 +346,31 @@ export default function NewSessionPage() {
       });
       router.push(`/sessions/${session.session_id}`);
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Failed to start session. Check your API keys in Settings.');
+      toast(err instanceof Error ? err.message : 'Failed to start session. Check your API keys in Settings.', 'error');
       setSubmitting(false);
     }
   }
 
   return (
-    <div
-      style={{
-        maxWidth: 'var(--content-max)',
-        margin: '0 auto',
-        padding: 'var(--space-8) var(--content-gutter)',
-      }}
-    >
+    <div className="max-w-[960px] mx-auto px-6 py-8">
       {/* Page heading */}
-      <div style={{ marginBottom: 'var(--space-8)' }}>
-        <h1
-          style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 'var(--text-2xl)',
-            fontWeight: 700,
-            marginBottom: 'var(--space-2)',
-          }}
-        >
+      <div className="mb-8">
+        <h1 className="font-display text-3xl font-bold mb-2">
           Convene a New Council
         </h1>
-        <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', marginBottom: 0 }}>
+        <p className="text-muted text-sm m-0">
           Submit one question. A panel of independent AI models will deliberate, critique each other anonymously, and synthesize a final answer.
         </p>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
-
+      <div className="flex flex-col gap-8">
         {/* ── Query Input ─── */}
         <section aria-labelledby="query-label">
           <SectionLabel>Your Question</SectionLabel>
           <label
             id="query-label"
             htmlFor="session-query"
-            style={{ display: 'block', marginBottom: 'var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}
+            className="block mb-2 text-sm text-muted"
           >
             The same query is sent to all Council Members simultaneously.
           </label>
@@ -384,42 +380,29 @@ export default function NewSessionPage() {
             placeholder="What question should the council deliberate on?"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            style={{
-              minHeight: '120px',
-              resize: 'none',
-              fontFamily: 'var(--font-body)',
-              lineHeight: 1.6,
-              overflowY: 'hidden',
-            }}
+            className="w-full min-h-[120px] resize-none font-body text-base leading-relaxed overflow-y-hidden bg-background border border-border rounded-md p-3 focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all"
             aria-describedby="query-hint"
           />
-          <p id="query-hint" style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-subtle)', marginTop: 'var(--space-1)', marginBottom: 0 }}>
-            Press <kbd style={{ fontFamily: 'var(--font-mono)', padding: '0 4px', border: '1px solid var(--color-border)', borderRadius: '3px' }}>⌘ Enter</kbd> to convene.
+          <p id="query-hint" className="text-xs text-subtle mt-1 m-0">
+            Press <kbd className="font-mono px-1 border border-border rounded-sm">⌘ Enter</kbd> to convene.
             {query.trim().length > 0 && (
-              <span style={{ marginLeft: 'var(--space-2)' }}>{query.trim().length} characters</span>
+              <span className="ml-2">{query.trim().length} characters</span>
             )}
           </p>
         </section>
 
         {/* ── Council Members ─── */}
         <section aria-labelledby="members-label">
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 'var(--space-3)',
-            }}
-          >
+          <div className="flex justify-between items-center mb-3">
             <div>
               <SectionLabel>Council Members</SectionLabel>
-              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-subtle)', margin: 0 }}>
+              <p className="text-xs text-subtle m-0">
                 Select 3–6 models from any provider. Each model reasons independently.
               </p>
             </div>
             <button
               id="add-member-btn"
-              className="btn-secondary btn-sm"
+              className="bg-white text-black px-3 py-1.5 border-2 border-black font-semibold text-xs rounded hover:bg-grey-93 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               onClick={addMember}
               disabled={members.length >= 6}
               aria-label="Add a Council Member seat"
@@ -429,23 +412,20 @@ export default function NewSessionPage() {
           </div>
 
           {members.length === 0 ? (
-            <div
-              style={{
-                border: '2px dashed var(--color-border)',
-                borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-8)',
-                textAlign: 'center',
-              }}
-            >
-              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-subtle)', marginBottom: 'var(--space-4)' }}>
+            <div className="border-2 border-dashed border-border rounded-md p-8 text-center">
+              <p className="text-sm text-subtle mb-4">
                 No Council Members added yet. Add at least 3 to begin.
               </p>
-              <button id="add-first-member-btn" className="btn-secondary" onClick={addMember}>
+              <button 
+                id="add-first-member-btn" 
+                className="bg-white text-black px-6 py-3 border-2 border-black font-semibold text-sm rounded hover:bg-grey-93 transition-colors" 
+                onClick={addMember}
+              >
                 + Add First Member
               </button>
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 'var(--space-4)' }}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {members.map((member, i) => (
                 <MemberCard
                   key={member.id}
@@ -462,14 +442,8 @@ export default function NewSessionPage() {
               {members.length < 6 && (
                 <button
                   id="add-member-inline-btn"
-                  className="btn-ghost"
+                  className="flex items-center justify-center border-2 border-dashed border-border rounded-md p-3 text-sm font-medium text-black bg-transparent hover:bg-grey-93 hover:border-grey-85 transition-colors"
                   onClick={addMember}
-                  style={{
-                    border: '2px dashed var(--color-border)',
-                    borderRadius: 'var(--radius-md)',
-                    padding: 'var(--space-3)',
-                    justifyContent: 'center',
-                  }}
                 >
                   + Add another member ({members.length}/6)
                 </button>
@@ -478,58 +452,90 @@ export default function NewSessionPage() {
           )}
         </section>
 
+        {/* ── Integrations & Settings ─── */}
+        <section aria-labelledby="integrations-label">
+          <SectionLabel>Integrations</SectionLabel>
+          <div className="flex flex-col gap-4 mt-3">
+            
+            <div className="p-4 border border-border rounded-md">
+              <Toggle
+                id="research-toggle"
+                checked={researchEnabled}
+                onChange={(v) => {
+                  setResearchEnabled(v);
+                  localStorage.setItem('synod_research_enabled', String(v));
+                }}
+                label="Enable Live Web Research"
+                description="A research sub-agent fetches evidence before Council Members respond."
+              />
+              {researchEnabled && (
+                <div className="mt-3 ml-[52px]">
+                  <label htmlFor="research-provider-select" className="block text-xs font-semibold mb-1">
+                    Research Provider
+                  </label>
+                  <select
+                    id="research-provider-select"
+                    value={researchProvider}
+                    onChange={(e) => {
+                      const val = e.target.value as ResearchProvider;
+                      setResearchProvider(val);
+                      localStorage.setItem('synod_research_provider', val);
+                    }}
+                    className="max-w-[200px] w-full text-sm bg-background border border-border rounded px-2 py-1.5 focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all"
+                  >
+                    <option value="tavily">Tavily</option>
+                    <option value="anakin">Anakin API</option>
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border border-border rounded-md">
+              <Toggle
+                id="notion-toggle"
+                checked={archiveToNotion}
+                onChange={(v) => {
+                  setArchiveToNotion(v);
+                  localStorage.setItem('synod_archive_notion', String(v));
+                }}
+                disabled={!notionConnected}
+                label="Archive to Notion"
+                description={
+                  <>
+                    Save the Chairman's report and full deliberation trail to Notion via the official MCP server.
+                    {!notionConnected && (
+                      <span className="block mt-1">
+                        <Link href="/settings/integrations" className="text-foreground underline hover:opacity-80 transition-opacity">Connect Notion in Settings</Link> to enable archiving.
+                      </span>
+                    )}
+                  </>
+                }
+              />
+            </div>
+
+          </div>
+        </section>
+
         {/* ── Submit ─── */}
         <section aria-labelledby="convene-section">
           {validationMessage && (
             <p
               role="status"
-              style={{
-                fontSize: 'var(--text-sm)',
-                color: 'var(--color-text-muted)',
-                marginBottom: 'var(--space-3)',
-                borderLeft: '3px solid var(--grey-50)',
-                paddingLeft: 'var(--space-3)',
-              }}
+              className="text-sm text-muted mb-3 border-l-4 border-grey-50 pl-3"
             >
               {validationMessage}
             </p>
           )}
 
-          {submitError && (
-            <div
-              role="alert"
-              style={{
-                border: '2px solid var(--grey-0)',
-                borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-4)',
-                marginBottom: 'var(--space-4)',
-                fontSize: 'var(--text-sm)',
-              }}
-            >
-              <strong>Failed to start session.</strong> {submitError}
-            </div>
-          )}
-
           <button
             id="convene-btn"
-            className="btn-primary btn-lg"
+            className="bg-black text-white px-8 py-4 border-2 border-black font-semibold text-base rounded hover:bg-grey-10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed min-w-[240px] flex items-center justify-center gap-2"
             onClick={handleConvene}
             disabled={!canConvene || submitting}
-            style={{ minWidth: '240px' }}
           >
             {submitting ? (
               <>
-                <span
-                  style={{
-                    display: 'inline-block',
-                    width: '16px',
-                    height: '16px',
-                    border: '2px solid rgba(255,255,255,0.3)',
-                    borderTopColor: '#fff',
-                    borderRadius: '50%',
-                    animation: 'spin 0.8s linear infinite',
-                  }}
-                />
+                <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 Convening…
               </>
             ) : (
@@ -537,22 +543,11 @@ export default function NewSessionPage() {
             )}
           </button>
 
-          <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-subtle)', marginTop: 'var(--space-2)', marginBottom: 0 }}>
+          <p className="text-xs text-subtle mt-2 m-0">
             This will make {configured.length || 'N'} API call{configured.length !== 1 ? 's' : ''} in parallel, billed to your configured provider keys.
           </p>
         </section>
       </div>
-
-      <style>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-        @media (max-width: 768px) {
-          div[style*="gridTemplateColumns"] {
-            grid-template-columns: 1fr !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }
