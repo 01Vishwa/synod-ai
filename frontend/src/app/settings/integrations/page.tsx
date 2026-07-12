@@ -6,66 +6,32 @@ import { ResearchProviderCard } from '@/components/settings/ResearchProviderCard
 import { NotionConnectCard } from '@/components/settings/NotionConnectCard';
 import { integrationsApi, type ResearchProvider } from '@/lib/api-client';
 
-// ─── Toggle Component ───────────────────────────────────────────────────────
-
-interface ToggleProps {
+function Toggle({
+  id, checked, onChange, label, description,
+}: {
   id: string;
   checked: boolean;
   onChange: (v: boolean) => void;
   label: string;
-  description?: string;
-}
-
-function Toggle({ id, checked, onChange, label, description }: ToggleProps) {
+  description?: React.ReactNode;
+}) {
   return (
-    <label
-      htmlFor={id}
-      style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: 'var(--space-3)',
-        cursor: 'pointer',
-      }}
-    >
-      <div style={{ position: 'relative', marginTop: '2px' }}>
+    <label htmlFor={id} className="flex items-start gap-3 cursor-pointer">
+      <div className="relative mt-[2px]">
         <input
           id={id}
           type="checkbox"
           checked={checked}
           onChange={(e) => onChange(e.target.checked)}
-          style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+          className="absolute opacity-0 w-0 h-0"
         />
-        <div
-          style={{
-            width: '40px',
-            height: '22px',
-            background: checked ? 'var(--grey-0)' : 'var(--grey-85)',
-            borderRadius: '11px',
-            position: 'relative',
-            transition: 'background var(--transition-normal)',
-          }}
-        >
-          <div
-            style={{
-              width: '16px',
-              height: '16px',
-              borderRadius: '50%',
-              background: 'var(--grey-100)',
-              position: 'absolute',
-              top: '3px',
-              left: checked ? '21px' : '3px',
-              transition: 'left var(--transition-normal)',
-            }}
-          />
+        <div className={`w-10 h-[22px] rounded-full relative transition-colors ${checked ? 'bg-black' : 'bg-grey-85'}`}>
+          <div className={`w-4 h-4 rounded-full bg-white absolute top-[3px] transition-all ${checked ? 'left-[21px]' : 'left-[3px]'}`} />
         </div>
       </div>
       <div>
-        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>{label}</div>
-        {description && (
-          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-subtle)', marginTop: '2px' }}>
-            {description}
-          </div>
-        )}
+        <div className="text-sm font-semibold">{label}</div>
+        {description && <div className="text-xs text-subtle mt-0.5">{description}</div>}
       </div>
     </label>
   );
@@ -77,12 +43,9 @@ export default function IntegrationsSettingsPage() {
     anakin: false,
   });
   const [notionConnected, setNotionConnected] = useState(false);
-
-  // Global settings for new sessions
   const [researchEnabled, setResearchEnabled] = useState(false);
   const [researchProvider, setResearchProvider] = useState<ResearchProvider>('tavily');
   const [archiveToNotion, setArchiveToNotion] = useState(false);
-  
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -108,103 +71,104 @@ export default function IntegrationsSettingsPage() {
     localStorage.setItem('synod_archive_notion', String(val));
   }
 
-  // In a real implementation, we would fetch the integration status here.
-  // For the frontend skeleton, we just mock it out.
-  function fetchStatus() {
-    // Mock refresh
+  async function fetchStatus() {
+    try {
+      const data = await integrationsApi.getStatus();
+      setConfigured({ tavily: data.research.tavily, anakin: data.research.anakin });
+      setNotionConnected(data.notion.connected);
+    } catch {
+      // gracefully handle missing backend
+    }
   }
 
   return (
-    <div style={{ maxWidth: '720px', margin: '0 auto', padding: 'var(--space-8) var(--content-gutter)' }}>
-      <div style={{ marginBottom: 'var(--space-6)' }}>
-        <Link href="/" style={{ textDecoration: 'none', color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+    <div className="max-w-[720px] mx-auto px-6 py-8">
+      <div className="mb-6">
+        <Link href="/" className="no-underline text-muted text-sm inline-flex items-center gap-2 hover:text-foreground transition-colors">
           <span>←</span> Back to Council
         </Link>
       </div>
 
-      <div style={{ marginBottom: 'var(--space-8)' }}>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--text-2xl)', fontWeight: 700, marginBottom: 'var(--space-2)' }}>
-          Integrations
-        </h1>
-        <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)' }}>
+      <div className="mb-8">
+        <h1 className="font-display text-3xl font-bold mb-2">Integrations</h1>
+        <p className="text-muted text-sm m-0">
           Connect auxiliary services for live web research and session archiving.
         </p>
       </div>
 
       {mounted && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
-          
-          {/* Research Section */}
-          <section aria-labelledby="research-heading">
-            <h2 id="research-heading" style={{ fontSize: 'var(--text-lg)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
-              Web Research
+        <div className="flex flex-col gap-8">
+          <section aria-labelledby="integrations-heading">
+            <h2 id="integrations-heading" className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
+              Integrations
             </h2>
-            <div style={{ marginBottom: 'var(--space-6)', padding: 'var(--space-4)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
+
+            {/* Research Toggle */}
+            <div className="bg-background border border-border rounded-md p-4 mb-4">
               <Toggle
                 id="research-toggle"
                 checked={researchEnabled}
                 onChange={handleResearchEnabledChange}
-                label="Enable live web research by default"
-                description="A research sub-agent fetches evidence before Council Members respond in all new sessions."
+                label="Enable Live Web Research"
+                description="A research sub-agent fetches evidence before Council Members respond."
               />
               {researchEnabled && (
-                <div style={{ marginTop: 'var(--space-3)', marginLeft: '52px' }}>
-                  <label
-                    htmlFor="research-provider-select"
-                    style={{ fontSize: 'var(--text-xs)', fontWeight: 600, display: 'block', marginBottom: 'var(--space-1)' }}
-                  >
-                    Research provider
-                  </label>
-                  <select
-                    id="research-provider-select"
-                    value={researchProvider}
-                    onChange={(e) => handleResearchProviderChange(e.target.value as ResearchProvider)}
-                    style={{ maxWidth: '200px' }}
-                  >
-                    <option value="tavily">Tavily</option>
-                    <option value="anakin">Anakin API</option>
-                  </select>
+                <div className="mt-4 ml-[52px] flex flex-col gap-4">
+                  <div>
+                    <label htmlFor="research-provider-select" className="block text-xs font-semibold mb-1">
+                      Research provider
+                    </label>
+                    <select
+                      id="research-provider-select"
+                      value={researchProvider}
+                      onChange={(e) => handleResearchProviderChange(e.target.value as ResearchProvider)}
+                      className="max-w-[200px] w-full text-sm bg-background border border-border rounded px-2 py-1.5 focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all"
+                    >
+                      <option value="tavily">Tavily</option>
+                      <option value="anakin">Anakin API</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-4">
+                    <ResearchProviderCard
+                      provider="tavily"
+                      title="Tavily API"
+                      description="AI-native search engine. Requires a tvly-... API key."
+                      isConfigured={configured.tavily}
+                      onUpdate={fetchStatus}
+                    />
+                    <ResearchProviderCard
+                      provider="anakin"
+                      title="Anakin API"
+                      description="Deep web scraping and crawling capabilities."
+                      isConfigured={configured.anakin}
+                      onUpdate={fetchStatus}
+                    />
+                  </div>
                 </div>
               )}
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-              <ResearchProviderCard
-                provider="tavily"
-                title="Tavily API"
-                description="AI-native search engine. Requires a tvly-... API key."
-                isConfigured={configured.tavily}
-                onUpdate={fetchStatus}
-              />
-
-              <ResearchProviderCard
-                provider="anakin"
-                title="Anakin API"
-                description="Deep web scraping and crawling capabilities."
-                isConfigured={configured.anakin}
-                onUpdate={fetchStatus}
-              />
-            </div>
-          </section>
-
-          {/* Archiving Section */}
-          <section aria-labelledby="archiving-heading">
-            <h2 id="archiving-heading" style={{ fontSize: 'var(--text-lg)', marginBottom: 'var(--space-4)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-2)' }}>
-              Archiving
-            </h2>
-            <div style={{ marginBottom: 'var(--space-6)', padding: 'var(--space-4)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
+            {/* Notion Toggle */}
+            <div className="bg-background border border-border rounded-md p-4">
               <Toggle
                 id="notion-toggle"
                 checked={archiveToNotion}
                 onChange={handleArchiveToNotionChange}
-                label="Archive to Notion when complete"
-                description="The Chairman's report and full deliberation trail are saved to your connected Notion workspace automatically for all new sessions."
+                label="Archive to Notion"
+                description={
+                  <>
+                    Save the Chairman&apos;s report and full deliberation trail to Notion via the official MCP server.
+                  </>
+                }
               />
+              {archiveToNotion && (
+                <div id="notion-connect" className="mt-4 ml-[52px]">
+                  <NotionConnectCard isConnected={notionConnected} />
+                </div>
+              )}
             </div>
-            
-            <NotionConnectCard isConnected={notionConnected} />
           </section>
-
         </div>
       )}
     </div>

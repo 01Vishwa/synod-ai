@@ -10,6 +10,8 @@ import { DashboardRenderer } from '@/components/dashboard/DashboardRenderer';
 import { CostMeter } from '@/components/council/CostMeter';
 import type { Stage } from '@/lib/api-client';
 
+// ─── Stage Progress Bar ────────────────────────────────────────────────────
+
 function StageStrip({ currentStage }: { currentStage: Stage | null }) {
   const steps = [
     { id: 'stage_1', label: '① First Opinions' },
@@ -22,16 +24,7 @@ function StageStrip({ currentStage }: { currentStage: Stage | null }) {
     currentStage === 'done' || currentStage === 'archiving' ? 2 : Math.max(0, currentIndex);
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--space-2)',
-        marginBottom: 'var(--space-8)',
-        overflowX: 'auto',
-        paddingBottom: 'var(--space-2)',
-      }}
-    >
+    <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
       {steps.map((step, i) => {
         const isPast = i < activeIndex;
         const isActive = i === activeIndex;
@@ -40,24 +33,19 @@ function StageStrip({ currentStage }: { currentStage: Stage | null }) {
         return (
           <React.Fragment key={step.id}>
             <div
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--text-xs)',
-                fontWeight: isActive ? 700 : 400,
-                color: isFuture ? 'var(--color-text-subtle)' : 'var(--color-text)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--space-2)',
-                whiteSpace: 'nowrap',
-              }}
+              className={`font-mono text-xs flex items-center gap-2 whitespace-nowrap transition-colors
+                ${isFuture ? 'text-subtle' : 'text-foreground'}
+                ${isActive ? 'font-bold' : 'font-normal'}
+                ${isPast ? 'text-muted' : ''}`}
             >
               {step.label}
               {isActive && currentStage !== 'done' && currentStage !== 'error' && (
-                <span style={{ fontSize: '10px' }}>◌</span>
+                <span className="text-[10px] animate-pulse">◌</span>
               )}
+              {isPast && <span className="text-[10px]">✓</span>}
             </div>
             {i < steps.length - 1 && (
-              <span style={{ color: 'var(--color-text-subtle)' }}>→</span>
+              <span className="text-subtle">→</span>
             )}
           </React.Fragment>
         );
@@ -66,37 +54,55 @@ function StageStrip({ currentStage }: { currentStage: Stage | null }) {
   );
 }
 
+// ─── Loading Skeleton ──────────────────────────────────────────────────────
+
+function SessionSkeleton() {
+  return (
+    <div className="max-w-[960px] mx-auto px-6 py-8">
+      <div className="h-8 w-3/5 bg-grey-93 rounded animate-pulse mb-8" />
+      <div className="h-4 w-2/5 bg-grey-93 rounded animate-pulse mb-8" />
+      <div className="h-[300px] bg-grey-93 rounded animate-pulse" />
+    </div>
+  );
+}
+
+// ─── Error State ───────────────────────────────────────────────────────────
+
+function SessionError({ error, refetch }: { error: string; refetch: () => void }) {
+  return (
+    <div className="max-w-[960px] mx-auto px-6 py-8">
+      <div className="bg-background border-2 border-black rounded-md p-6">
+        <h2 className="text-xl font-display font-bold mb-2">Failed to load session</h2>
+        <p className="text-muted mb-4">{error}</p>
+        <button
+          className="bg-black text-white px-6 py-3 border-2 border-black font-semibold text-sm rounded hover:bg-grey-10 transition-colors"
+          onClick={refetch}
+        >
+          Retry
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Page Component ────────────────────────────────────────────────────────
+
 export default function SessionPage({ params }: { params: { sessionId: string } }) {
-  const { state, status, stage, error, totalCostUsd, totalTokens, refetch } = useCouncilSession(params.sessionId);
+  const { state, status, stage, error, totalCostUsd, totalTokens, refetch } =
+    useCouncilSession(params.sessionId);
   const dashboardSpec = useDashboardSpec(state);
 
   if (status === 'loading' && !state) {
-    return (
-      <div style={{ maxWidth: 'var(--content-max)', margin: '0 auto', padding: 'var(--space-8) var(--content-gutter)' }}>
-        <div className="skeleton" style={{ height: '32px', width: '60%', marginBottom: 'var(--space-8)' }} />
-        <div className="skeleton" style={{ height: '16px', width: '40%', marginBottom: 'var(--space-8)' }} />
-        <div className="skeleton" style={{ height: '300px' }} />
-      </div>
-    );
+    return <SessionSkeleton />;
   }
 
   if (status === 'error' && !state) {
-    return (
-      <div style={{ maxWidth: 'var(--content-max)', margin: '0 auto', padding: 'var(--space-8) var(--content-gutter)' }}>
-        <div className="card" style={{ borderColor: 'var(--grey-0)' }}>
-          <h2 style={{ fontSize: 'var(--text-lg)', marginBottom: 'var(--space-2)' }}>Failed to load session</h2>
-          <p style={{ color: 'var(--color-text-muted)' }}>{error}</p>
-          <button className="btn-primary" onClick={refetch} style={{ marginTop: 'var(--space-4)' }}>
-            Retry
-          </button>
-        </div>
-      </div>
-    );
+    return <SessionError error={error ?? 'Unknown error'} refetch={refetch} />;
   }
 
   if (!state) return null;
 
-  // Determine streaming members for Stage 1 tab loading indicators
+  // Determine which members are still waiting on Stage 1 responses
   const streamingMemberIds = new Set<string>();
   if (stage === 'stage_1') {
     state.members.forEach((m) => {
@@ -105,24 +111,24 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
     });
   }
 
+  const isActive = stage !== 'done' && stage !== 'error';
+
   return (
-    <div style={{ maxWidth: 'var(--content-max)', margin: '0 auto', padding: 'var(--space-8) var(--content-gutter)' }}>
+    <div className="max-w-[960px] mx-auto px-6 py-8">
       {/* Session Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-6)' }}>
-        <div style={{ flex: 1, paddingRight: 'var(--space-6)' }}>
-          <h1
-            style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: 'var(--text-2xl)',
-              fontWeight: 700,
-              lineHeight: 1.3,
-              marginBottom: 'var(--space-2)',
-            }}
-          >
+      <div className="flex justify-between items-start mb-6">
+        <div className="flex-1 pr-6">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold leading-snug mb-2">
             {state.user_query}
           </h1>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--color-text-subtle)' }}>
+          <div className="font-mono text-xs text-subtle">
             Session ID: {state.session_id} • {new Date(state.created_at).toLocaleString()}
+            {isActive && (
+              <span className="ml-3 inline-flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-black animate-pulse" />
+                Live
+              </span>
+            )}
           </div>
         </div>
         <div>
@@ -136,23 +142,45 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
       {status === 'error' && state.stage === 'error' && (
         <div
           role="alert"
-          style={{
-            border: '2px solid var(--grey-0)',
-            borderRadius: 'var(--radius-md)',
-            padding: 'var(--space-6)',
-            marginBottom: 'var(--space-8)',
-          }}
+          className="border-2 border-black rounded-md p-6 mb-8"
         >
-          <h3 style={{ fontSize: 'var(--text-lg)', marginBottom: 'var(--space-2)' }}>Session Halted</h3>
-          <p style={{ color: 'var(--color-text-muted)', marginBottom: 0 }}>
+          <h3 className="text-xl font-display font-bold mb-2">Session Halted</h3>
+          <p className="text-muted m-0">
             {error || 'All Council Members failed during execution.'}
           </p>
         </div>
       )}
 
-      {/* Main Content Area based on Stage */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-12)' }}>
-        {/* Stage 1 is always visible once it has started */}
+      {/* Research Digest (shown if present) */}
+      {state.research_digest && (
+        <section aria-labelledby="research-heading" className="mb-8">
+          <h2 id="research-heading" className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
+            Research Context
+          </h2>
+          <div className="bg-grey-93 border border-border rounded-md p-4">
+            <p className="text-sm text-foreground mb-3 font-medium">
+              {state.research_digest.summary}
+            </p>
+            <div className="flex flex-col gap-1">
+              {state.research_digest.sources.slice(0, 5).map((src, i) => (
+                <a
+                  key={i}
+                  href={src.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-muted underline hover:text-foreground transition-colors font-mono truncate"
+                >
+                  [{i + 1}] {src.title || src.url}
+                </a>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Main Content Area — stages reveal as they complete */}
+      <div className="flex flex-col gap-12">
+        {/* Stage 1 — always visible once started */}
         <section aria-labelledby="stage1-heading">
           <h2 id="stage1-heading" className="sr-only">First Opinions</h2>
           <MemberTabs
@@ -162,8 +190,12 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
           />
         </section>
 
-        {/* Stage 2 & 3 become visible as they are reached */}
-        {(stage === 'stage_2' || stage === 'stage_3' || stage === 'archiving' || stage === 'done' || (stage === 'error' && state.stage_2_responses.length > 0)) && (
+        {/* Stage 2 — peer reviews */}
+        {(stage === 'stage_2' ||
+          stage === 'stage_3' ||
+          stage === 'archiving' ||
+          stage === 'done' ||
+          (stage === 'error' && state.stage_2_responses.length > 0)) && (
           <section aria-labelledby="stage2-heading">
             <RankingTable
               rankings={state.rankings}
@@ -174,6 +206,7 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
           </section>
         )}
 
+        {/* Stage 3 — chairman synthesis */}
         {(stage === 'stage_3' || stage === 'archiving' || stage === 'done') && (
           <section aria-labelledby="stage3-heading">
             <ChairmanReport
@@ -189,14 +222,11 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
           </section>
         )}
 
-        {/* Dashboard Region (rendered if backend emits a spec) */}
+        {/* Dashboard Region */}
         {dashboardSpec && (
           <section
             aria-labelledby="dashboard-heading"
-            style={{
-              borderTop: '1px solid var(--color-border)',
-              paddingTop: 'var(--space-8)',
-            }}
+            className="border-t border-border pt-8"
           >
             <h2 id="dashboard-heading" className="sr-only">Session Metrics</h2>
             <DashboardRenderer spec={dashboardSpec} />
