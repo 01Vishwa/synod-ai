@@ -5,7 +5,7 @@ import { ToastProvider } from '@/components/ui/ToastProvider';
 
 export const metadata: Metadata = {
   title: {
-    default: 'Synod — Where Models Convene, Truth Concludes.',
+    default: 'Synod',
     template: '%s | Synod',
   },
   description:
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   metadataBase: new URL('http://localhost:3000'),
   openGraph: {
     title: 'Synod',
-    description: 'Where Models Convene, Truth Concludes.',
+    description: 'Synod',
     type: 'website',
   },
 };

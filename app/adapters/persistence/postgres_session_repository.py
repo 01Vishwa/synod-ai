@@ -77,7 +77,13 @@ class PostgresSessionRepository(SessionRepository):
         Atomically overwrite the session's state snapshot after each stage
         transition. Also updates the denormalised `stage` column.
         """
-        model = await self._db.get(CouncilSessionModel, state["session_id"])
+        stmt = select(CouncilSessionModel).where(
+            CouncilSessionModel.id == state["session_id"],
+            CouncilSessionModel.user_id == state.get("user_id", ""),
+        )
+        result = await self._db.execute(stmt)
+        model = result.scalar_one_or_none()
+        
         if model is None:
             raise NotFoundError(
                 message=f"Session '{state['session_id']}' not found for checkpoint.",
@@ -95,9 +101,16 @@ class PostgresSessionRepository(SessionRepository):
 
     # ── Read operations ───────────────────────────────────────────────────
 
-    async def load(self, session_id: str) -> Optional[CouncilState]:
-        model = await self._db.get(CouncilSessionModel, session_id)
-        if model is None or model.is_deleted:
+    async def load(self, session_id: str, user_id: str) -> Optional[CouncilState]:
+        stmt = select(CouncilSessionModel).where(
+            CouncilSessionModel.id == session_id,
+            CouncilSessionModel.user_id == user_id,
+            CouncilSessionModel.is_deleted.is_(False),
+        )
+        result = await self._db.execute(stmt)
+        model = result.scalar_one_or_none()
+        
+        if model is None:
             return None
         return model.state  # type: ignore[return-value]
 
@@ -121,8 +134,15 @@ class PostgresSessionRepository(SessionRepository):
         models = result.scalars().all()
         return [m.state for m in models]  # type: ignore[return-value]
 
-    async def delete(self, session_id: str) -> None:
-        model = await self._db.get(CouncilSessionModel, session_id)
+    async def delete(self, session_id: str, user_id: str) -> None:
+        stmt = select(CouncilSessionModel).where(
+            CouncilSessionModel.id == session_id,
+            CouncilSessionModel.user_id == user_id,
+            CouncilSessionModel.is_deleted.is_(False),
+        )
+        result = await self._db.execute(stmt)
+        model = result.scalar_one_or_none()
+        
         if model is None:
             raise NotFoundError(
                 message=f"Session '{session_id}' not found.",

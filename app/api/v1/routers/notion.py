@@ -178,8 +178,8 @@ async def manual_publish(
     Manually push a completed report to Notion.
     """
     # 1. Load session
-    state = await repo.load(session_id)
-    if not state or state.get("user_id") != user_id:
+    state = await repo.load(session_id, user_id=user_id)
+    if not state:
         raise HTTPException(status_code=404, detail="Session not found.")
     
     if state.get("stage") != "done":

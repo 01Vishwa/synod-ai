@@ -54,17 +54,18 @@ class ProviderKeyResponse(BaseModel):
     """
     Safe read-back of a stored provider key.
 
-    The raw api_key is intentionally absent — only metadata is exposed.
+    The raw api_key / ciphertext is intentionally absent — only metadata is exposed.
+    key_fingerprint is the masked last-4-chars hint (e.g. "••••r4Mk") — safe to show.
 
-    NOTE: created_at / updated_at are typed as `datetime` (not `str`) so
-    Pydantic v2 can read them directly from the SQLAlchemy ORM model (which
-    returns native datetime objects).  Pydantic serialises them to ISO 8601
-    strings in the HTTP response body automatically — no custom encoder needed.
+    NOTE: created_at / updated_at / last_tested_at are typed as `datetime` so
+    Pydantic v2 reads them directly from the SQLAlchemy ORM model (native datetime
+    objects) and serialises them to ISO 8601 strings automatically.
     """
     id: str
     provider: str
-    label: Optional[str] = None
-    is_verified: bool
+    key_fingerprint: str
+    last_test_ok: Optional[bool] = None
+    last_tested_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -86,33 +87,31 @@ class TestConnectionResponse(BaseModel):
 # ── Model catalogue ────────────────────────────────────────────────────────
 
 class ModelCatalogEntry(BaseModel):
-    model_id: str
-    display_name: str
-    context_window: Optional[int] = None
-    cost_per_million_tokens_in: Optional[float] = None
-    cost_per_million_tokens_out: Optional[float] = None
+    id: str
+    name: str
+    provider: str
+    publisher: str
+    is_free: bool
+    capabilities: list[str]
 
 
 class ModelCatalogResponse(BaseModel):
-    provider: str
-    models: list[ModelCatalogEntry]
-    total: int
+    items: list[ModelCatalogEntry]
 
     @classmethod
-    def from_model_infos(cls, provider: str, infos: list) -> "ModelCatalogResponse":
+    def from_model_infos(cls, infos: list) -> "ModelCatalogResponse":
         return cls(
-            provider=provider,
-            models=[
+            items=[
                 ModelCatalogEntry(
-                    model_id=m.model_id,
-                    display_name=m.display_name,
-                    context_window=m.context_window,
-                    cost_per_million_tokens_in=m.cost_per_million_tokens_in,
-                    cost_per_million_tokens_out=m.cost_per_million_tokens_out,
+                    id=m.id,
+                    name=m.name,
+                    provider=m.provider,
+                    publisher=m.publisher,
+                    is_free=m.is_free,
+                    capabilities=m.capabilities,
                 )
                 for m in infos
-            ],
-            total=len(infos),
+            ]
         )
 
 

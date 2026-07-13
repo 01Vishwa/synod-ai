@@ -3,21 +3,21 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ProviderKeyCard } from '@/components/settings/ProviderKeyCard';
-import { providersApi, type Provider } from '@/lib/api-client';
+import { providersApi, type Provider, type ProviderKeyResponse } from '@/lib/api-client';
 
 export default function ProvidersSettingsPage() {
-  const [configured, setConfigured] = useState<Record<Provider, boolean>>({
-    openrouter: false,
-    nvidia_nim: false,
-    github_models: false,
+  const [configured, setConfigured] = useState<Record<Provider, ProviderKeyResponse | null>>({
+    openrouter: null,
+    nvidia_nim: null,
+    github_models: null,
   });
   const [loading, setLoading] = useState(true);
 
   async function fetchStatus() {
     try {
       const data = await providersApi.getConfiguredProviders();
-      const status = { openrouter: false, nvidia_nim: false, github_models: false };
-      data.forEach((p) => { status[p.provider] = p.configured; });
+      const status: Record<Provider, ProviderKeyResponse | null> = { openrouter: null, nvidia_nim: null, github_models: null };
+      data.forEach((p) => { status[p.provider] = p; });
       setConfigured(status);
     } catch {
       // gracefully handle missing backend
@@ -51,7 +51,7 @@ export default function ProvidersSettingsPage() {
           provider="openrouter"
           title="OpenRouter"
           description="Access hundreds of models (Anthropic, OpenAI, Meta) via a single unified API."
-          isConfigured={configured.openrouter}
+          providerKey={configured.openrouter}
           onUpdate={fetchStatus}
         />
 
@@ -59,7 +59,7 @@ export default function ProvidersSettingsPage() {
           provider="nvidia_nim"
           title="NVIDIA NIM"
           description="Enterprise-grade NVIDIA hosted models with high throughput."
-          isConfigured={configured.nvidia_nim}
+          providerKey={configured.nvidia_nim}
           onUpdate={fetchStatus}
         />
 
@@ -67,7 +67,7 @@ export default function ProvidersSettingsPage() {
           provider="github_models"
           title="GitHub Models"
           description="Access to models hosted on GitHub's inference infrastructure."
-          isConfigured={configured.github_models}
+          providerKey={configured.github_models}
           onUpdate={fetchStatus}
           retirementWarning="GitHub Models is being retired on July 30, 2026. After this date, this provider will cease to function."
         />

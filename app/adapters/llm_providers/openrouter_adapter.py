@@ -131,13 +131,27 @@ class OpenRouterAdapter(ProviderAdapter):
         models: list[ModelInfo] = []
         for m in data.get("data", []):
             pricing = m.get("pricing", {})
+            prompt_cost = _to_float(pricing.get("prompt"))
+            completion_cost = _to_float(pricing.get("completion"))
+            
+            # Identify if it's free
+            is_free = False
+            if prompt_cost == 0.0 and completion_cost == 0.0:
+                is_free = True
+            elif "free" in m.get("id", "").lower():
+                is_free = True
+                
+            model_id = m.get("id", "")
+            publisher = model_id.split("/")[0] if "/" in model_id else "openrouter"
+            
             models.append(
                 ModelInfo(
-                    model_id=m.get("id", ""),
-                    display_name=m.get("name", m.get("id", "")),
-                    context_window=m.get("context_length"),
-                    cost_per_million_tokens_in=_to_float(pricing.get("prompt")),
-                    cost_per_million_tokens_out=_to_float(pricing.get("completion")),
+                    id=model_id,
+                    name=m.get("name", model_id),
+                    provider="openrouter",
+                    publisher=publisher,
+                    is_free=is_free,
+                    capabilities=["text"]
                 )
             )
         return models

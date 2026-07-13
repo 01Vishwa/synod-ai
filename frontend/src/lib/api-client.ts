@@ -72,13 +72,15 @@ export interface CouncilState {
 export interface ModelInfo {
   id: string;
   name: string;
-  context_length?: number;
-  pricing?: { prompt: number; completion: number };
+  provider: string;
+  publisher: string;
+  is_free: boolean;
+  capabilities: string[];
 }
 
 export interface CreateSessionRequest {
   user_query: string;
-  members: Array<{ provider: Provider; model_id: string; display_label: string; role?: 'member' | 'chairman' }>;
+  members: Array<{ member_id: string; provider: Provider; model_id: string; display_label: string; role?: 'member' | 'chairman' }>;
   chairman_member_id?: string;
   research_enabled: boolean;
   research_provider?: ResearchProvider;
@@ -96,6 +98,16 @@ export interface SessionSummary {
   notion_page_url?: string;
   trace_id: string;
   headline?: string;
+}
+
+export interface ProviderKeyResponse {
+  id: string;
+  provider: Provider;
+  key_fingerprint: string;
+  last_test_ok?: boolean;
+  last_tested_at?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ProviderKeyRequest {
@@ -142,6 +154,10 @@ async function apiFetch<T>(
   if (!res.ok) {
     const body = await res.text();
     throw new ApiError(res.status, res.statusText, body);
+  }
+
+  if (res.status === 204) {
+    return undefined as unknown as T;
   }
 
   return res.json() as Promise<T>;
@@ -199,11 +215,16 @@ export const providersApi = {
       body: JSON.stringify({ api_key: "dummy" }), // Using test endpoint req schema
     }),
 
-  listModels: (provider: Provider) =>
-    apiFetch<ModelInfo[]>(`/providers/${provider}/models`),
+  listModels: async (provider: Provider) => {
+    const res = await apiFetch<{ items: ModelInfo[] }>(`/providers/${provider}/models`);
+    return res.items;
+  },
 
   getConfiguredProviders: () =>
-    apiFetch<Array<{ provider: Provider; configured: boolean }>>('/providers'), // we mapped this to GET /providers
+    apiFetch<Array<ProviderKeyResponse>>('/providers'),
+
+  revokeKey: (provider: Provider) =>
+    apiFetch<void>(`/providers/${provider}`, { method: 'DELETE' }),
 };
 
 // ─── Integrations ─────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import { AuthModal } from '@/components/auth/AuthModal';
 
@@ -11,6 +11,7 @@ export function UserMenu() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     // Check initial session
@@ -22,6 +23,9 @@ export function UserMenu() {
       } else {
         setIsAuthenticated(false);
         setUserEmail(null);
+        if (searchParams.get('auth') === 'required') {
+          setIsModalOpen(true);
+        }
       }
     };
 

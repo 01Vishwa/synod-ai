@@ -21,8 +21,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean,
-    Column,
     DateTime,
+    Enum,
     Float,
     Index,
     Integer,
@@ -33,6 +33,15 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
+
+# ── PostgreSQL enum types (create_type=False — enum already exists in DB) ────
+
+# Matches the 'provider_name' enum in Supabase: openrouter | nvidia_nim | github_models
+_PROVIDER_NAME_ENUM = Enum(
+    "openrouter", "nvidia_nim", "github_models",
+    name="provider_name",
+    create_type=False,  # Do NOT emit CREATE TYPE — it already exists
+)
 
 
 def _utcnow() -> datetime:
@@ -59,11 +68,11 @@ class CouncilSessionModel(Base):
 
     # Primary key — matches CouncilState.session_id
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
     )
 
     # Owning user (Supabase auth.users UUID)
-    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False, index=True)
 
     # Denormalised stage for fast filtering ("stage_1", "done", "error", …)
     stage: Mapped[str] = mapped_column(String(32), nullable=False, default="stage_1")
@@ -111,35 +120,58 @@ class CouncilSessionModel(Base):
 
 class ProviderKeyModel(Base):
     """
-    Stores one encrypted provider API key per (user_id, provider) pair.
+    Mirrors the actual Supabase `provider_keys` table exactly.
 
-    The encrypted_key column holds the Fernet-encrypted ciphertext; the
-    raw plaintext key is NEVER stored.
+    Column mapping (DB → Python):
+        id              UUID PK
+        user_id         UUID FK → auth.users(id) ON DELETE CASCADE
+        provider        provider_name enum (openrouter | nvidia_nim | github_models)
+        ciphertext_b64  TEXT — Fernet-encrypted + base64-encoded API key
+        key_fingerprint TEXT — safe display hint, e.g. "••••abcd" (last 4 chars)
+        last_tested_at  TIMESTAMPTZ — set when /test or auto-verify is called
+        last_test_ok    BOOLEAN  — NULL = never tested, True = ok, False = failed
+        last_test_error TEXT     — provider error message on last failure (no secrets)
+        created_at      TIMESTAMPTZ
+        updated_at      TIMESTAMPTZ
+
+    The raw plaintext API key is NEVER stored in any column.
     """
     __tablename__ = "provider_keys"
 
+    # UUID primary key — stored as lowercase hyphenated string in Python,
+    # postgres uuid type in the DB (asyncpg handles the conversion).
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+        UUID(as_uuid=False),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
     )
 
-    # Owning Supabase user
-    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    # Owning Supabase user — must match auth.users.id (UUID)
+    user_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        nullable=False,
+        index=True,
+    )
 
-    # Provider slug: "openrouter" | "nvidia_nim" | "tavily" | "anakin" | "notion"
-    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    # PostgreSQL enum — must be one of the values in the 'provider_name' type
+    provider: Mapped[str] = mapped_column(
+        _PROVIDER_NAME_ENUM,
+        nullable=False,
+    )
 
-    # Fernet-encrypted API key ciphertext
-    encrypted_key: Mapped[str] = mapped_column(Text, nullable=False)
+    # Fernet-encrypted, base64-encoded API key ciphertext — never returned to client
+    ciphertext_b64: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # Human-readable label the user assigned (e.g. "My OpenRouter key")
-    label: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Safe display hint for the frontend — e.g. "••••r4Mk"
+    # Computed from the last 4 chars of the plaintext key at write time.
+    key_fingerprint: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
-    # Provider-specific metadata (e.g. Notion workspace_id, parent_page_id)
-    # Stored as JSONB for extensibility — never contains secrets.
-    connection_meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-
-    # Whether this key has been verified via a test-connection call
-    is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Test result columns — populated by POST /{provider}/test or auto-verify
+    last_tested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_test_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    last_test_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -152,8 +184,8 @@ class ProviderKeyModel(Base):
     )
 
     __table_args__ = (
-        # One key per (user, provider) — users can only have one active key per provider
-        UniqueConstraint("user_id", "provider", name="uq_provider_keys_user_provider"),
+        # Matches the DB constraint name: provider_keys_user_id_provider_key
+        UniqueConstraint("user_id", "provider", name="provider_keys_user_id_provider_key"),
     )
 
     def __repr__(self) -> str:

@@ -54,8 +54,49 @@ _jwks_client = PyJWKClient(_SUPABASE_JWKS_URL, cache_keys=True)
 
 # ── Database session ───────────────────────────────────────────────────────
 
-async def get_session(
+async def set_rls_context(
     db: Annotated[AsyncSession, Depends(get_db)],
+    authorization: Annotated[Optional[str], Header()] = None,
+) -> None:
+    """
+    Sets the Supabase RLS JWT claims on the database connection if a token is present.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        return
+
+    token = authorization.removeprefix("Bearer ").strip()
+    try:
+        # We reuse the JWKS client to verify and extract the sub claim
+        signing_key = _jwks_client.get_signing_key_from_jwt(token)
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["ES256"],
+            audience="authenticated",
+            issuer=_SUPABASE_ISSUER,
+            options={"require": ["exp", "iat", "sub"]},
+        )
+        user_id = payload.get("sub")
+        if user_id:
+            import json
+            from sqlalchemy import text
+            claims = json.dumps({"sub": user_id, "role": "authenticated"})
+            await db.execute(
+                text("SELECT set_config('request.jwt.claims', :claims, true)"), 
+                {"claims": claims}
+            )
+    except Exception:
+        pass  # Token validation errors are strictly handled by get_current_user_id
+
+async def get_db_with_rls(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: None = Depends(set_rls_context),
+) -> AsyncSession:
+    """Yield the DB session after ensuring RLS context is set."""
+    return db
+
+async def get_session(
+    db: Annotated[AsyncSession, Depends(get_db_with_rls)],
 ) -> SessionRepository:
     """
     Inject a request-scoped PostgresSessionRepository.
@@ -216,5 +257,5 @@ CurrentUserId = Annotated[str, Depends(get_current_user_id)]
 SessionRepo = Annotated[SessionRepository, Depends(get_session)]
 Tracer = Annotated[TracerPort, Depends(get_tracer)]
 Vault = Annotated[KeyVault, Depends(get_key_vault)]
-DbSession = Annotated[AsyncSession, Depends(get_db)]
+DbSession = Annotated[AsyncSession, Depends(get_db_with_rls)]
 NotionSvc = Annotated[NotionService, Depends(get_notion_service)]

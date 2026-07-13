@@ -63,9 +63,6 @@ function Header({ onMenuToggle, isMobileMenuOpen }: HeaderProps) {
         <SynodWordmark />
       </Link>
 
-      <span className="hidden sm:inline text-xs text-subtle font-mono ml-2">
-        Where Models Convene, Truth Concludes.
-      </span>
 
       <div className="flex-1" />
 

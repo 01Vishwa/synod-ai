@@ -36,11 +36,12 @@ class ChatResponse:
 @dataclass(frozen=True)
 class ModelInfo:
     """Catalogue entry returned by list_models()."""
-    model_id: str
-    display_name: str
-    context_window: Optional[int] = None
-    cost_per_million_tokens_in: Optional[float] = None
-    cost_per_million_tokens_out: Optional[float] = None
+    id: str
+    name: str
+    provider: str
+    publisher: str
+    is_free: bool
+    capabilities: list[str]
 
 
 class ProviderAdapter(ABC):
