@@ -167,13 +167,10 @@ async def get_session(
     tracer: Tracer,
 ) -> Any:
     """Retrieve the full state of a session."""
-    state = await repo.load(session_id)
+    state = await repo.load(session_id, user_id=user_id)
     if not state:
         raise HTTPException(status_code=404, detail="Session not found.")
-        
-    # Security check: ensure the user owns this session
-    if state.get("user_id") != user_id:
-        raise HTTPException(status_code=404, detail="Session not found.")
+
         
     response = SessionResponse(**state)
     response.trace_url = tracer.get_trace_url(state["trace_id"])
@@ -201,11 +198,9 @@ async def stream_session(
     imperceptible to users since each LLM call takes multiple seconds.
     """
     # ── Auth guard ────────────────────────────────────────────────────────────
-    initial = await repo.load(session_id)
+    initial = await repo.load(session_id, user_id=user_id)
     if not initial:
         raise HTTPException(status_code=404, detail="Session not found.")
-    if initial.get("user_id") != user_id:
-        raise HTTPException(status_code=403, detail="Access denied.")
 
     async def event_generator() -> AsyncGenerator[dict[str, Any], None]:
         _POLL_INTERVAL_SECS = 0.5
@@ -227,7 +222,7 @@ async def stream_session(
             await asyncio.sleep(_POLL_INTERVAL_SECS)
 
             try:
-                state = await repo.load(session_id)
+                state = await repo.load(session_id, user_id=user_id)
             except Exception as exc:
                 logger.warning(
                     "stream_session: repo.load failed for %s: %s", session_id, exc
@@ -299,10 +294,8 @@ async def delete_session(
     repo: SessionRepo,
 ) -> None:
     """Soft-delete a session."""
-    state = await repo.load(session_id)
+    state = await repo.load(session_id, user_id=user_id)
     if not state:
         raise HTTPException(status_code=404, detail="Session not found.")
-    if state.get("user_id") != user_id:
-        raise HTTPException(status_code=403, detail="Access denied.")
         
-    await repo.delete(session_id)
+    await repo.delete(session_id, user_id=user_id)

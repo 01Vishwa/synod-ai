@@ -18,8 +18,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 class CouncilMemberConfigSchema(BaseModel):
     """One seat in the council — validated at the API boundary."""
     member_id: str = Field(
-        description="Stable internal identifier, e.g. 'member_1'",
-        pattern=r"^member_\d+$",
+        description=(
+            "Stable opaque identifier generated once when the seat is created. "
+            "Format: 'member_' followed by 7 lowercase alphanumeric characters, "
+            "e.g. 'member_ap0mr8y'. Must remain unchanged for the lifetime of the "
+            "council session — across provider changes, model changes, and re-renders."
+        ),
+        pattern=r"^member_[a-z0-9]+$",
     )
     provider: Literal["openrouter", "nvidia_nim", "github_models"] = Field(
         description="LLM provider for this seat"
@@ -39,7 +44,7 @@ class CouncilMemberConfigSchema(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "member_id": "member_1",
+                "member_id": "member_ap0mr8y",
                 "provider": "openrouter",
                 "model_id": "anthropic/claude-sonnet-4.5",
                 "display_label": "Council Seat 1",
@@ -75,7 +80,7 @@ class SessionCreateRequest(BaseModel):
         description="Which research provider to use (required if research_enabled=true)",
     )
     # Optional: pin a specific model as Chairman instead of electing the top scorer
-    pinned_chairman_member_id: Optional[str] = Field(
+    chairman_member_id: Optional[str] = Field(
         default=None,
         description="member_id of the model to designate as Chairman unconditionally",
     )
@@ -112,18 +117,33 @@ class SessionCreateRequest(BaseModel):
             raise ValueError("All member_id values must be unique within a session.")
         return members
 
+    @model_validator(mode="after")
+    def _validate_chairman(self) -> "SessionCreateRequest":
+        if self.chairman_member_id:
+            matching = [m for m in self.members if m.member_id == self.chairman_member_id]
+            if not matching:
+                raise ValueError("chairman_member_id does not correspond to any member in the council.")
+            if matching[0].role != "chairman":
+                raise ValueError("The member referenced by chairman_member_id must have the 'chairman' role.")
+        else:
+            chairmen = [m for m in self.members if m.role == "chairman"]
+            if chairmen:
+                raise ValueError("A member cannot have the 'chairman' role if chairman_member_id is not set.")
+        return self
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "user_query": "What are the trade-offs between microservices and a modular monolith?",
                 "members": [
-                    {"member_id": "member_1", "provider": "openrouter",
+                    {"member_id": "member_a1b2c3d", "provider": "openrouter",
                      "model_id": "anthropic/claude-sonnet-4.5", "display_label": "Claude Seat", "role": "member"},
-                    {"member_id": "member_2", "provider": "nvidia_nim",
+                    {"member_id": "member_e4f5g6h", "provider": "nvidia_nim",
                      "model_id": "meta/llama-3.3-70b-instruct", "display_label": "Llama Seat", "role": "member"},
-                    {"member_id": "member_3", "provider": "openrouter",
-                     "model_id": "openai/gpt-4.1", "display_label": "GPT Seat", "role": "member"},
+                    {"member_id": "member_ap0mr8y", "provider": "openrouter",
+                     "model_id": "openai/gpt-4.1", "display_label": "GPT Seat", "role": "chairman"},
                 ],
+                "chairman_member_id": "member_ap0mr8y",
                 "research_enabled": True,
                 "research_provider": "tavily",
             }

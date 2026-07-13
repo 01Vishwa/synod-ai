@@ -22,7 +22,7 @@ from typing_extensions import TypedDict
 
 class CouncilMemberConfig(TypedDict):
     """Static configuration for one seat in the council."""
-    member_id: str                          # stable internal id, e.g. "member_1"
+    member_id: str                          # stable opaque id, e.g. "member_ap0mr8y"
     provider: Literal["openrouter", "nvidia_nim", "github_models"]
     model_id: str                           # e.g. "anthropic/claude-sonnet-4.5"
     display_label: str                      # user-facing name, e.g. "Council Seat 1"

@@ -12,6 +12,7 @@ import Link from 'next/link';
 import type { Provider, ResearchProvider, ModelInfo } from '@/lib/api-client';
 import { sessionsApi, providersApi, systemApi } from '@/lib/api-client';
 import { useToast } from '@/hooks/useToast';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -103,12 +104,15 @@ function MemberCard({
   index,
   models,
   loadingModels,
+  modelErrors,
   onUpdate,
   onRemove,
   onSetChairman,
   isChairman,
 }: MemberCardProps) {
   const providerModels = models[member.provider] ?? [];
+  const isLoading = loadingModels[member.provider];
+  const error = modelErrors[member.provider];
 
   return (
     <div
@@ -172,23 +176,27 @@ function MemberCard({
           <label htmlFor={`model-${member.id}`} className="block text-xs font-semibold mb-1">
             Model
           </label>
-          {loadingModels[member.provider] ? (
-            <div className="h-[34px] rounded bg-grey-93 animate-pulse" />
-          ) : (
-            <select
-              id={`model-${member.id}`}
-              value={member.model_id}
-              onChange={(e) => onUpdate(member.id, { model_id: e.target.value })}
-              className="w-full text-base sm:text-sm bg-background border border-border rounded px-2 py-1.5 focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all"
-            >
-              <option value="">Select model…</option>
-              {providerModels.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name || m.id}
-                </option>
-              ))}
-            </select>
-          )}
+          <SearchableSelect
+            id={`model-${member.id}`}
+            value={member.model_id}
+            onChange={(val) => onUpdate(member.id, { model_id: val })}
+            options={
+              member.provider && !isLoading && !error && providerModels.length > 0
+                ? providerModels.map((m) => ({ value: m.id, label: m.name || m.id }))
+                : []
+            }
+            disabled={!member.provider || isLoading || !!error || providerModels.length === 0}
+            placeholder={
+              !member.provider ? 'Select provider first' :
+              isLoading ? 'Loading models...' :
+              error ? (error.includes('No API key') 
+                ? `Connect ${member.provider === 'github_models' ? 'GitHub Models' : member.provider === 'nvidia_nim' ? 'NVIDIA NIM' : 'OpenRouter'} in Settings` 
+                : 'Could not load models') :
+              providerModels.length === 0 ? 'No models available' :
+              'Select model…'
+            }
+            className={error ? 'border border-red-500 rounded text-red-700' : ''}
+          />
         </div>
       </div>
 
@@ -254,19 +262,44 @@ export default function NewSessionPage() {
     nvidia_nim: false,
     github_models: false,
   });
+  const [modelErrors, setModelErrors] = useState<Record<Provider, string | null>>({
+    openrouter: null,
+    nvidia_nim: null,
+    github_models: null,
+  });
+
+  const fetchAttempted = useRef<Record<Provider, boolean>>({
+    openrouter: false,
+    nvidia_nim: false,
+    github_models: false,
+  });
 
   const fetchModels = useCallback(async (provider: Provider) => {
-    if (models[provider].length > 0) return;
+    if (fetchAttempted.current[provider]) return;
+    fetchAttempted.current[provider] = true;
+
     setLoadingModels((prev) => ({ ...prev, [provider]: true }));
+    setModelErrors((prev) => ({ ...prev, [provider]: null }));
     try {
       const list = await providersApi.listModels(provider);
       setModels((prev) => ({ ...prev, [provider]: list }));
-    } catch {
-      // ignore
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to fetch models';
+      setModelErrors((prev) => ({
+        ...prev,
+        [provider]: msg
+      }));
+      
+      if (msg.includes('No API key')) {
+        const providerName = provider === 'github_models' ? 'GitHub Models' : provider === 'nvidia_nim' ? 'NVIDIA NIM' : 'OpenRouter';
+        toast(`Connect ${providerName} in Settings to view models.`, 'error');
+      } else {
+        toast(`Failed to load models for ${provider}`, 'error');
+      }
     } finally {
       setLoadingModels((prev) => ({ ...prev, [provider]: false }));
     }
-  }, [models]);
+  }, [toast]);
 
   useEffect(() => {
     const providers = [...new Set(members.map((m) => m.provider))];
@@ -321,13 +354,30 @@ export default function NewSessionPage() {
   }
 
   const configured = members.filter((m) => m.model_id);
-  const canConvene = query.trim().length >= 10 && configured.length >= 3;
-  const validationMessage =
-    query.trim().length < 10
-      ? 'Query must be at least 10 characters.'
-      : configured.length < 3
-      ? `Select at least 3 Council Members with a model. (${configured.length}/3 ready)`
-      : null;
+  const chairmen = members.filter((m) => m.role === 'chairman');
+  
+  let validationMessage: string | null = null;
+  if (query.trim().length < 10) {
+    validationMessage = 'Query must be at least 10 characters.';
+  } else if (members.length < 3 || members.length > 6) {
+    validationMessage = `Select between 3 and 6 Council Members. (${members.length}/3 ready)`;
+  } else if (members.some(m => !m.id)) {
+    validationMessage = 'All members must have an internal ID.';
+  } else if (new Set(members.map(m => m.id)).size !== members.length) {
+    validationMessage = 'All members must have unique IDs.';
+  } else if (configured.length !== members.length) {
+    validationMessage = 'All members must have a provider and model selected.';
+  } else if (chairmen.length !== 1) {
+    validationMessage = 'Exactly one member must be selected as the Chairman.';
+  } else if (!chairmanId) {
+    validationMessage = 'Chairman ID is missing.';
+  } else if (!members.find(m => m.id === chairmanId)) {
+    validationMessage = 'Selected Chairman does not exist in the council.';
+  } else if (members.find(m => m.id === chairmanId)?.role !== 'chairman') {
+    validationMessage = 'Chairman ID mismatch with member role.';
+  }
+
+  const canConvene = validationMessage === null;
 
   async function handleConvene() {
     if (!canConvene || submitting) return;
@@ -336,9 +386,8 @@ export default function NewSessionPage() {
     try {
       const session = await sessionsApi.create({
         user_query: query.trim(),
-        members: members
-          .filter((m) => m.model_id)
-          .map((m) => ({
+        members: members.map((m) => ({
+            member_id: m.id,
             provider: m.provider,
             model_id: m.model_id,
             display_label: m.display_label || `Council Seat ${members.indexOf(m) + 1}`,
@@ -438,6 +487,7 @@ export default function NewSessionPage() {
                   index={i}
                   models={models}
                   loadingModels={loadingModels}
+                  modelErrors={modelErrors}
                   onUpdate={updateMember}
                   onRemove={removeMember}
                   onSetChairman={setChairman}

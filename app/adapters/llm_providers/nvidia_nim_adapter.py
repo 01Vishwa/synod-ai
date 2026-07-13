@@ -124,9 +124,12 @@ class NvidiaNimAdapter(ProviderAdapter):
 
         return [
             ModelInfo(
-                model_id=m.get("id", ""),
-                display_name=m.get("id", ""),   # NVIDIA doesn't expose display names in this endpoint
-                context_window=None,
+                id=m.get("id", ""),
+                name=m.get("id", ""),   # NVIDIA doesn't expose display names in this endpoint
+                provider="nvidia_nim",
+                publisher="nvidia",
+                is_free=False, # We don't have free info for NIM currently
+                capabilities=["text"]
             )
             for m in data.get("data", [])
         ]

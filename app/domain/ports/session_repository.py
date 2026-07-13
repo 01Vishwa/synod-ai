@@ -44,12 +44,13 @@ class SessionRepository(ABC):
         ...
 
     @abstractmethod
-    async def load(self, session_id: str) -> Optional[CouncilState]:
+    async def load(self, session_id: str, user_id: str) -> Optional[CouncilState]:
         """
-        Load the latest checkpoint for `session_id`.
+        Load the latest checkpoint for `session_id` verifying ownership via `user_id`.
 
         Returns:
-            The stored CouncilState, or None if no session with that ID exists.
+            The stored CouncilState, or None if no session with that ID exists
+            or it doesn't belong to the given user.
         """
         ...
 
@@ -66,6 +67,6 @@ class SessionRepository(ABC):
         ...
 
     @abstractmethod
-    async def delete(self, session_id: str) -> None:
-        """Permanently remove a session and all its checkpoints."""
+    async def delete(self, session_id: str, user_id: str) -> None:
+        """Permanently remove a session and all its checkpoints, verifying ownership."""
         ...
