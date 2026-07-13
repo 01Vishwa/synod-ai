@@ -28,10 +28,10 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     FRONTEND_URL: str = "http://localhost:3000"
 
-    # ── Supabase (new publishable / secret key model) ───────────────────────
+    # ── Supabase ────────────────────────────────────────────────────────────
     SUPABASE_URL: str = ""
-    SUPABASE_PUBLISHABLE_KEY: str = ""
-    SUPABASE_SECRET_KEY: str = ""             # backend-only — never sent to client
+    SUPABASE_ANON_KEY: str = ""             # public anon key — safe to expose to client
+    SUPABASE_SERVICE_ROLE_KEY: str = ""     # service role key — backend-only, never sent to client
 
     # ── Direct PostgreSQL (for SQLAlchemy + LangGraph checkpointer) ─────────
     DATABASE_URL: str = ""
@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     # ── Application security ────────────────────────────────────────────────
     # Fernet-compatible 32-byte URL-safe base64 key for provider-key encryption
     CREDENTIAL_ENCRYPTION_KEY: str = ""
+
+    # ── Notion OAuth (Notion integration settings) ───────────────────────────
+    NOTION_CLIENT_ID: str = ""
+    NOTION_CLIENT_SECRET: str = ""
+    # Must match the redirect URI registered in your Notion integration
+    NOTION_REDIRECT_URI: str = "http://localhost:3000/settings/notion/callback"
+    NOTION_PARENT_PAGE_ID: Optional[str] = None
 
     # ── CORS ────────────────────────────────────────────────────────────────
     # Accepts a comma-separated string from env or a JSON list

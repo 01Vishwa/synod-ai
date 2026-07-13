@@ -19,6 +19,8 @@ export const metadata: Metadata = {
   },
 };
 
+import { SessionHistoryProvider } from '@/components/layout/SessionHistoryContext';
+
 export default function RootLayout({
   children,
 }: {
@@ -42,7 +44,9 @@ export default function RootLayout({
       </head>
       <body>
         <ToastProvider>
-          <AppShell>{children}</AppShell>
+          <SessionHistoryProvider>
+            <AppShell>{children}</AppShell>
+          </SessionHistoryProvider>
         </ToastProvider>
       </body>
     </html>

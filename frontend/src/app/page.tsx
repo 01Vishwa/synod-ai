@@ -228,15 +228,20 @@ export default function NewSessionPage() {
   const [archiveToNotion, setArchiveToNotion] = useState(false);
   const [notionConnected, setNotionConnected] = useState(false);
 
+  const healthChecked = useRef(false);
+
   useEffect(() => {
     setResearchEnabled(localStorage.getItem('synod_research_enabled') === 'true');
     setResearchProvider((localStorage.getItem('synod_research_provider') as ResearchProvider) || 'tavily');
     setArchiveToNotion(localStorage.getItem('synod_archive_notion') === 'true');
     setNotionConnected(localStorage.getItem('synod_notion_connected') === 'true');
 
-    systemApi.checkHealth()
-      .then(() => toast('Backend Connected', 'success'))
-      .catch(() => toast('Backend Unreachable', 'error'));
+    if (!healthChecked.current) {
+      healthChecked.current = true;
+      systemApi.checkHealth()
+        .then(() => toast('Backend Connected', 'success'))
+        .catch(() => toast('Backend Unreachable', 'error'));
+    }
   }, [toast]);
 
   const [models, setModels] = useState<Record<Provider, ModelInfo[]>>({
@@ -450,70 +455,6 @@ export default function NewSessionPage() {
               )}
             </div>
           )}
-        </section>
-
-        {/* ── Integrations & Settings ─── */}
-        <section aria-labelledby="integrations-label">
-          <SectionLabel>Integrations</SectionLabel>
-          <div className="flex flex-col gap-4 mt-3">
-            
-            <div className="p-4 border border-border rounded-md">
-              <Toggle
-                id="research-toggle"
-                checked={researchEnabled}
-                onChange={(v) => {
-                  setResearchEnabled(v);
-                  localStorage.setItem('synod_research_enabled', String(v));
-                }}
-                label="Enable Live Web Research"
-                description="A research sub-agent fetches evidence before Council Members respond."
-              />
-              {researchEnabled && (
-                <div className="mt-3 ml-[52px]">
-                  <label htmlFor="research-provider-select" className="block text-xs font-semibold mb-1">
-                    Research Provider
-                  </label>
-                  <select
-                    id="research-provider-select"
-                    value={researchProvider}
-                    onChange={(e) => {
-                      const val = e.target.value as ResearchProvider;
-                      setResearchProvider(val);
-                      localStorage.setItem('synod_research_provider', val);
-                    }}
-                    className="max-w-[200px] w-full text-sm bg-background border border-border rounded px-2 py-1.5 focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all"
-                  >
-                    <option value="tavily">Tavily</option>
-                    <option value="anakin">Anakin API</option>
-                  </select>
-                </div>
-              )}
-            </div>
-
-            <div className="p-4 border border-border rounded-md">
-              <Toggle
-                id="notion-toggle"
-                checked={archiveToNotion}
-                onChange={(v) => {
-                  setArchiveToNotion(v);
-                  localStorage.setItem('synod_archive_notion', String(v));
-                }}
-                disabled={!notionConnected}
-                label="Archive to Notion"
-                description={
-                  <>
-                    Save the Chairman's report and full deliberation trail to Notion via the official MCP server.
-                    {!notionConnected && (
-                      <span className="block mt-1">
-                        <Link href="/settings/integrations" className="text-foreground underline hover:opacity-80 transition-opacity">Connect Notion in Settings</Link> to enable archiving.
-                      </span>
-                    )}
-                  </>
-                }
-              />
-            </div>
-
-          </div>
         </section>
 
         {/* ── Submit ─── */}

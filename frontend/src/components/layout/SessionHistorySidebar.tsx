@@ -8,7 +8,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { sessionsApi, type SessionSummary } from '@/lib/api-client';
+import { useSessionHistory } from './SessionHistoryContext';
 
 function PlusIcon() {
   return (
@@ -90,22 +90,19 @@ function NavLink({ href, children, id }: NavLinkProps) {
 }
 
 export function SessionHistorySidebar() {
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const { sessions, status } = useSessionHistory();
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
   const pathname = usePathname();
 
-  useEffect(() => {
-    sessionsApi.list()
-      .then(setSessions)
-      .catch(() => setSessions([]))
-      .finally(() => setLoading(false));
-  }, [pathname]);
-
-  const filtered = sessions.filter((s) =>
-    s.user_query.toLowerCase().includes(search.toLowerCase()) ||
+  const filtered = Array.isArray(sessions) ? sessions.filter((s) =>
+    s.user_query?.toLowerCase().includes(search.toLowerCase()) ||
     (s.headline ?? '').toLowerCase().includes(search.toLowerCase()),
-  );
+  ) : [];
+
+  const isLoading = status === 'loading';
+  const isError = status === 'error';
+  const isEmpty = status === 'empty' || status === 'unauthenticated';
+  const isSuccess = status === 'success';
 
   return (
     <nav aria-label="Sidebar navigation" className="flex flex-col h-full pt-4">
@@ -128,7 +125,7 @@ export function SessionHistorySidebar() {
           <ClockIcon />
           History
         </NavLink>
-        <NavLink href="/settings/providers" id="sidebar-settings-providers-link">
+        <NavLink href="/settings" id="sidebar-settings-providers-link">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <circle cx="8" cy="8" r="2.5" />
             <path d="M8 1v2M8 13v2M1 8h2M13 8h2" />
@@ -141,72 +138,98 @@ export function SessionHistorySidebar() {
 
       {/* Recent Sessions */}
       <div className="px-4 mb-2 flex flex-col gap-2 flex-1 overflow-hidden">
-        <p className="text-xs font-semibold text-subtle uppercase tracking-widest mb-1">
-          Recent Sessions
-        </p>
+        {(isLoading || isSuccess) ? (
+          <p className="text-xs font-semibold text-subtle uppercase tracking-widest mb-1">
+            Recent Sessions
+          </p>
+        ) : null}
 
-        {/* Search */}
-        <div className="relative">
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-subtle pointer-events-none">
-            <SearchIcon />
-          </span>
-          <input
-            id="sidebar-session-search"
-            type="search"
-            placeholder="Search sessions…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            aria-label="Search past sessions"
-            className="w-full pl-7 text-xs h-8 bg-background border border-border rounded focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all placeholder-subtle text-foreground"
-          />
-        </div>
+        {/* Loading State */}
+        {isLoading && (
+          <div className="overflow-y-auto flex-1 flex flex-col gap-1">
+            <p className="text-xs font-semibold text-subtle uppercase tracking-widest text-center my-4">
+              Loading Sessions...
+            </p>
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-grey-93 rounded h-[60px] animate-pulse" />
+            ))}
+          </div>
+        )}
 
-        {/* Session list */}
-        <div className="overflow-y-auto flex-1 flex flex-col gap-1">
-          {loading && (
-            <>
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="bg-grey-93 rounded h-[60px] animate-pulse"
-                />
-              ))}
-            </>
-          )}
+        {/* Error State */}
+        {isError && (
+          <div className="flex-1 flex flex-col justify-center items-center text-center p-4">
+            <p className="text-xs font-semibold text-subtle uppercase tracking-widest mb-4">
+              History Unavailable
+            </p>
+          </div>
+        )}
 
-          {!loading && filtered.length === 0 && (
-            <div className="p-4 text-center text-xs text-subtle">
-              {search ? 'No sessions match your search.' : 'No sessions yet.'}
+        {/* Empty State */}
+        {isEmpty && (
+          <div className="flex-1 flex flex-col justify-center items-center text-center p-4">
+            <p className="text-xs font-semibold text-subtle uppercase tracking-widest mb-4">
+              No previous sessions
+            </p>
+          </div>
+        )}
+
+        {/* Success State */}
+        {isSuccess && (
+          <>
+            {/* Search */}
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-subtle pointer-events-none">
+                <SearchIcon />
+              </span>
+              <input
+                id="sidebar-session-search"
+                type="search"
+                placeholder="Search sessions…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                aria-label="Search past sessions"
+                className="w-full pl-7 text-xs h-8 bg-background border border-border rounded focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all placeholder-subtle text-foreground"
+              />
             </div>
-          )}
 
-          {filtered.map((session) => {
-            const isActive = pathname.includes(session.session_id);
-            return (
-              <Link
-                key={session.session_id}
-                href={`/sessions/${session.session_id}`}
-                className="no-underline"
-              >
-                <div
-                  className={`px-3 py-2 rounded border transition-colors cursor-pointer
-                    ${isActive 
-                      ? 'border-2 border-black bg-grey-93' 
-                      : 'border border-border bg-background hover:bg-grey-93/50'
-                    }`}
-                >
-                  <div className="text-xs font-semibold text-foreground overflow-hidden text-ellipsis whitespace-nowrap mb-1">
-                    {session.user_query}
-                  </div>
-                  <div className="text-[11px] text-subtle flex justify-between">
-                    <span className="font-mono">{stageBadge(session.stage)}</span>
-                    <span>{formatDate(session.created_at)}</span>
-                  </div>
+            {/* Session list */}
+            <div className="overflow-y-auto flex-1 flex flex-col gap-1">
+              {filtered.length === 0 && search && (
+                <div className="p-4 text-center text-xs text-subtle">
+                  No sessions match your search.
                 </div>
-              </Link>
-            );
-          })}
-        </div>
+              )}
+
+              {filtered.map((session) => {
+                const isActive = pathname.includes(session.session_id);
+                return (
+                  <Link
+                    key={session.session_id}
+                    href={`/sessions/${session.session_id}`}
+                    className="no-underline"
+                  >
+                    <div
+                      className={`px-3 py-2 rounded border transition-colors cursor-pointer
+                        ${isActive 
+                          ? 'border-2 border-black bg-grey-93' 
+                          : 'border border-border bg-background hover:bg-grey-93/50'
+                        }`}
+                    >
+                      <div className="text-xs font-semibold text-foreground overflow-hidden text-ellipsis whitespace-nowrap mb-1">
+                        {session.user_query}
+                      </div>
+                      <div className="text-[11px] text-subtle flex justify-between">
+                        <span className="font-mono">{stageBadge(session.stage)}</span>
+                        <span>{formatDate(session.created_at)}</span>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
     </nav>
   );

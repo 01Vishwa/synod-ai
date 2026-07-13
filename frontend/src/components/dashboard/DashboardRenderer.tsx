@@ -20,15 +20,7 @@ export function DashboardRenderer({ spec }: DashboardRendererProps) {
   // Add a grid container around the rendered root component
   // so widgets can flow naturally in 2–4 columns.
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-        gap: 'var(--space-4)',
-        width: '100%',
-        animation: 'fadeIn 200ms ease',
-      }}
-    >
+    <div className="grid grid-cols-1 md:grid-cols-2 desktop:grid-cols-4 gap-6 w-full animate-fade-in">
       <Renderer spec={spec as any} registry={registry} />
     </div>
   );

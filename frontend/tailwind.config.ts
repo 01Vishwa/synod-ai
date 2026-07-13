@@ -8,6 +8,9 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      screens: {
+        'desktop': '1200px',
+      },
       colors: {
         background: "var(--color-bg)",
         foreground: "var(--color-text)",

@@ -10,6 +10,7 @@ returned on any read operation — the response schema deliberately omits it.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -54,13 +55,18 @@ class ProviderKeyResponse(BaseModel):
     Safe read-back of a stored provider key.
 
     The raw api_key is intentionally absent — only metadata is exposed.
+
+    NOTE: created_at / updated_at are typed as `datetime` (not `str`) so
+    Pydantic v2 can read them directly from the SQLAlchemy ORM model (which
+    returns native datetime objects).  Pydantic serialises them to ISO 8601
+    strings in the HTTP response body automatically — no custom encoder needed.
     """
     id: str
     provider: str
     label: Optional[str] = None
     is_verified: bool
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -129,3 +135,13 @@ class NotionConnectResponse(BaseModel):
     workspace_name: Optional[str] = None
     connected: bool = True
     message: str = "Notion connected successfully."
+
+
+class OAuthAuthorizeResponse(BaseModel):
+    """GET /api/v1/notion/oauth/authorize — return the Notion OAuth URL."""
+    auth_url: str
+
+
+class NotionPublishResponse(BaseModel):
+    """POST /api/v1/notion/publish/{session_id} — return the published URL."""
+    notion_page_url: str

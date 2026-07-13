@@ -99,7 +99,10 @@ class CouncilState(TypedDict):
     citations: list[dict]                   # {url, title, excerpt}
 
     # Optional archiving
+    archive_to_notion: bool                 # gates the archive step
     notion_page_url: Optional[str]
+    archive_status: Optional[str]           # "done" | "failed" | "skipped"
+    archive_error: Optional[str]            # structured error message if failed
 
     # Dynamic dashboard spec (json-render Spec emitted by dashboard_builder_node)
     dashboard_spec: Optional[dict]

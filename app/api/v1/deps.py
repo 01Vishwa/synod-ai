@@ -19,17 +19,37 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Optional
 
+import jwt
 from fastapi import Depends, Header, HTTPException, status
+from jwt import PyJWKClient
+from jwt.exceptions import (
+    ExpiredSignatureError,
+    InvalidAudienceError,
+    InvalidIssuerError,
+    InvalidTokenError,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.observability.langsmith_tracer import LangSmithTracer
 from app.adapters.persistence.database import get_db
 from app.adapters.persistence.postgres_session_repository import PostgresSessionRepository
 from app.adapters.security.key_vault import KeyVault
+from app.adapters.notion.oauth_state_store import OAuthStateStore
+from app.adapters.notion.notion_mcp_adapter import NotionMcpAdapter
+from app.application.handlers.publish_handler import PublishHandler
+from app.application.services.notion_service import NotionService
 from app.domain.ports.observability_port import TracerPort
 from app.domain.ports.session_repository import SessionRepository
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# ── Supabase JWKS client (module-level singleton, caches public keys) ───────
+
+_SUPABASE_ISSUER = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1"
+_SUPABASE_JWKS_URL = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json"
+
+_jwks_client = PyJWKClient(_SUPABASE_JWKS_URL, cache_keys=True)
 
 
 # ── Database session ───────────────────────────────────────────────────────
@@ -65,7 +85,20 @@ def get_key_vault() -> KeyVault:
     return KeyVault.instance()
 
 
-# ── Supabase auth (JWT verification) ─────────────────────────────────────
+# ── Services ──────────────────────────────────────────────────────────────
+
+async def get_notion_service() -> NotionService:
+    """
+    Inject the NotionService.
+    Assembles the required adapters (state store, MCP adapter, publish handler).
+    """
+    port = NotionMcpAdapter()
+    handler = PublishHandler(port=port)
+    store = OAuthStateStore.instance()
+    return NotionService(publish_handler=handler, state_store=store)
+
+
+# ── Supabase auth (ES256 JWKS verification) ───────────────────────────────
 
 async def get_current_user_id(
     authorization: Annotated[Optional[str], Header()] = None,
@@ -73,12 +106,10 @@ async def get_current_user_id(
     """
     Extract and verify the Supabase JWT from the Authorization header.
 
-    Returns the authenticated user's UUID (sub claim).
+    Verifies the ES256 signature against Supabase's public JWKS endpoint,
+    validates issuer, audience ("authenticated"), and expiry.
 
-    In production this verifies the JWT signature against Supabase's JWKS
-    endpoint using the SUPABASE_SECRET_KEY.  The implementation below is the
-    minimal bootstrap version — the full JWT verification is wired here
-    so every route that Depends(get_current_user_id) is protected.
+    Returns the authenticated user's UUID (sub claim).
 
     Raises:
         HTTPException 401: if no token is provided or validation fails.
@@ -86,52 +117,97 @@ async def get_current_user_id(
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid Authorization header. Expected: Bearer <token>",
+            detail={
+                "code": "missing_token",
+                "message": "Authentication is required.",
+            },
             headers={"WWW-Authenticate": "Bearer"},
         )
 
     token = authorization.removeprefix("Bearer ").strip()
 
+    # Log only safe header metadata — never the token itself
     try:
-        user_id = _verify_supabase_jwt(token)
-    except Exception as exc:
+        unverified_header = jwt.get_unverified_header(token)
+        logger.debug(
+            "JWT verification attempt",
+            extra={
+                "algorithm": unverified_header.get("alg"),
+                "kid": unverified_header.get("kid"),
+                "expected_issuer": _SUPABASE_ISSUER,
+            },
+        )
+    except Exception:
+        pass  # header decode failure will be caught below
+
+    try:
+        signing_key = _jwks_client.get_signing_key_from_jwt(token)
+
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["ES256"],
+            audience="authenticated",
+            issuer=_SUPABASE_ISSUER,
+            options={"require": ["exp", "iat", "sub"]},
+        )
+
+        user_id: str = payload.get("sub", "")
+        if not user_id:
+            raise InvalidTokenError("JWT 'sub' claim is missing.")
+        return user_id
+
+    except ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "token_expired",
+                "message": "Your session has expired.",
+            },
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    except InvalidAudienceError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "invalid_audience",
+                "message": "Invalid authentication token.",
+            },
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    except InvalidIssuerError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "invalid_issuer",
+                "message": "Invalid authentication token.",
+            },
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    except InvalidTokenError as exc:
         logger.warning("JWT verification failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token.",
+            detail={
+                "code": "invalid_token",
+                "message": "Invalid authentication token.",
+            },
             headers={"WWW-Authenticate": "Bearer"},
-        ) from exc
+        )
 
-    return user_id
-
-
-def _verify_supabase_jwt(token: str) -> str:
-    """
-    Verify a Supabase JWT and return the subject (user UUID).
-
-    Uses PyJWT to decode and verify the token against the Supabase secret key.
-    The SUPABASE_SECRET_KEY (new model) is used as the HMAC secret for HS256
-    tokens issued by Supabase Auth.
-
-    Returns:
-        The authenticated user's UUID string.
-
-    Raises:
-        Exception: on any verification failure (expired, invalid signature, etc.)
-    """
-    import jwt as pyjwt  # PyJWT — not the `jwt` package
-    from app.core.config import settings
-
-    payload = pyjwt.decode(
-        token,
-        settings.SUPABASE_SECRET_KEY,
-        algorithms=["HS256"],
-        options={"verify_aud": False},  # Supabase tokens omit aud in some configurations
-    )
-    user_id: str = payload.get("sub", "")
-    if not user_id:
-        raise ValueError("JWT 'sub' claim is missing.")
-    return user_id
+    except Exception as exc:
+        logger.error("Unexpected JWT verification error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "invalid_token",
+                "message": "Invalid authentication token.",
+            },
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 # ── Convenience type aliases for route signatures ─────────────────────────
@@ -141,3 +217,4 @@ SessionRepo = Annotated[SessionRepository, Depends(get_session)]
 Tracer = Annotated[TracerPort, Depends(get_tracer)]
 Vault = Annotated[KeyVault, Depends(get_key_vault)]
 DbSession = Annotated[AsyncSession, Depends(get_db)]
+NotionSvc = Annotated[NotionService, Depends(get_notion_service)]

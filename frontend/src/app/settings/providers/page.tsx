@@ -39,18 +39,8 @@ export default function ProvidersSettingsPage() {
   }
 
   return (
-    <div className="max-w-[720px] mx-auto px-6 py-8">
-      <div className="mb-6">
-        <Link
-          href="/"
-          className="no-underline text-muted text-sm inline-flex items-center gap-2 hover:text-foreground transition-colors"
-        >
-          <span>←</span> Back to Council
-        </Link>
-      </div>
-
+    <div className="animate-fade-in">
       <div className="mb-8">
-        <h1 className="font-display text-3xl font-bold mb-2">Model Providers</h1>
         <p className="text-muted text-sm m-0">
           Synod connects exclusively to these three inference providers. Your keys are encrypted at rest and never shared.
         </p>

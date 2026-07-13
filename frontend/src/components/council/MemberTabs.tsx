@@ -15,6 +15,53 @@ interface MemberTabsProps {
   streamingMemberIds?: Set<string>;
 }
 
+// ─── Error Classification (PRD §12.6) ─────────────────────────────────────
+// PRD §12.6: partial/degraded state must name the error *class*
+// (timeout / auth / rate-limit), never just a raw message or bare spinner.
+
+type ErrorClass = 'timeout' | 'auth' | 'rate-limit' | 'unknown';
+
+function classifyError(errorStr: string): ErrorClass {
+  const lower = errorStr.toLowerCase();
+  if (
+    lower.includes('timeout') ||
+    lower.includes('timed out') ||
+    lower.includes('time out') ||
+    lower.includes('deadline exceeded') ||
+    lower.includes('connection reset')
+  ) return 'timeout';
+  if (
+    lower.includes('auth') ||
+    lower.includes('unauthorized') ||
+    lower.includes('403') ||
+    lower.includes('401') ||
+    lower.includes('invalid key') ||
+    lower.includes('invalid api key') ||
+    lower.includes('permission denied') ||
+    lower.includes('forbidden')
+  ) return 'auth';
+  if (
+    lower.includes('rate') ||
+    lower.includes('429') ||
+    lower.includes('quota') ||
+    lower.includes('throttl') ||
+    lower.includes('too many requests') ||
+    lower.includes('requests per minute')
+  ) return 'rate-limit';
+  return 'unknown';
+}
+
+function ErrorClassBadge({ errorClass }: { errorClass: ErrorClass }) {
+  return (
+    <span
+      className="font-mono text-xs font-bold px-2 py-px border-2 border-black rounded-sm uppercase"
+      aria-label={`Error class: ${errorClass}`}
+    >
+      {errorClass}
+    </span>
+  );
+}
+
 function StatusLabel({ response }: { response?: MemberResponse }) {
   if (!response) {
     return (
@@ -90,19 +137,8 @@ export function MemberTabs({ members, responses, streamingMemberIds }: MemberTab
 
   return (
     <div>
-      {/* Tab strip */}
-      <div
-        ref={tablistRef}
-        role="tablist"
-        aria-label="Council Member responses"
-        style={{
-          display: 'flex',
-          gap: 'var(--space-1)',
-          borderBottom: '2px solid var(--color-border)',
-          overflowX: 'auto',
-          padding: '0 0 0 0',
-        }}
-      >
+      {/* Mobile Accordion View (<768px) */}
+      <div className="md:hidden flex flex-col gap-2">
         {members.map((member, i) => {
           const res = responses.find((r) => r.member_id === member.member_id);
           const isActive = i === activeIndex;
@@ -110,169 +146,201 @@ export function MemberTabs({ members, responses, streamingMemberIds }: MemberTab
           const isStreamingThis = streamingMemberIds?.has(member.member_id);
 
           return (
-            <button
-              key={member.member_id}
-              id={`tab-${member.member_id}`}
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`panel-${member.member_id}`}
-              onClick={() => setActiveIndex(i)}
-              style={{
-                padding: 'var(--space-2) var(--space-4)',
-                fontFamily: 'var(--font-display)',
-                fontSize: 'var(--text-sm)',
-                fontWeight: isActive ? 700 : 400,
-                border: 'none',
-                borderBottom: isActive
-                  ? '2px solid var(--grey-0)'
-                  : '2px solid transparent',
-                borderTop: hasError && !isActive ? '2px solid var(--grey-0)' : 'none',
-                background: 'transparent',
-                color: isActive ? 'var(--grey-0)' : 'var(--color-text-muted)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--space-2)',
-                marginBottom: '-2px',
-                transition: 'color var(--transition-fast), border-color var(--transition-fast)',
-                whiteSpace: 'nowrap',
-                position: 'relative',
-              }}
-            >
-              <ProviderBadge provider={member.provider} />
-              <span>{member.display_label || `Seat ${i + 1}`}</span>
-              {isStreamingThis && (
-                <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)' }}>◌</span>
+            <div key={member.member_id} className={`border ${hasError ? 'border-2 border-black' : 'border-border'} rounded-md overflow-hidden bg-background`}>
+              <button
+                onClick={() => setActiveIndex(isActive ? -1 : i)}
+                className={`w-full flex items-center justify-between px-4 py-3 font-display text-sm transition-colors ${isActive ? 'bg-grey-93 font-bold text-black' : 'text-muted hover:bg-grey-93'}`}
+                aria-expanded={isActive}
+              >
+                <div className="flex items-center gap-2">
+                  <ProviderBadge provider={member.provider} />
+                  <span>{member.display_label || `Seat ${i + 1}`}</span>
+                  {isStreamingThis && <span className="text-[10px] font-mono animate-pulse">◌</span>}
+                  {res && !isStreamingThis && !hasError && <span className="text-[10px]">✓</span>}
+                  {hasError && <span className="text-[10px] font-bold">✕</span>}
+                </div>
+                <span className="text-xs">{isActive ? '−' : '+'}</span>
+              </button>
+              
+              {isActive && (
+                <div className="p-4 border-t border-border animate-fade-in">
+                  {/* Member info bar */}
+                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-border">
+                    <div className="flex items-center gap-3">
+                      <span className="font-display font-bold text-sm">
+                        {member.display_label || `Council Seat ${i + 1}`}
+                      </span>
+                      <span className="badge badge-muted font-mono text-[11px]">
+                        {member.model_id}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <StatusLabel response={res} />
+                      {res && !res.error && (
+                        <>
+                          <span className="text-[11px] font-mono text-subtle">{res.latency_ms}ms</span>
+                          <span className="text-[11px] font-mono text-subtle">{(res.tokens_in + res.tokens_out).toLocaleString()} tok</span>
+                          <span className="text-[11px] font-mono text-subtle">${res.cost_usd.toFixed(5)}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Content */}
+                  {!res && !isStreamingThis && (
+                    <div>
+                      <div className="h-4 w-4/5 bg-grey-93 rounded animate-pulse mb-3" />
+                      <div className="h-4 w-[95%] bg-grey-93 rounded animate-pulse mb-3" />
+                      <div className="h-4 w-[70%] bg-grey-93 rounded animate-pulse mb-3" />
+                      <p className="mt-3 text-sm text-subtle">Waiting for Council Seat {i + 1}…</p>
+                    </div>
+                  )}
+
+                  {res?.error && (
+                    <div role="alert" className="border-2 border-black rounded-md p-6">
+                      <div className="flex items-center gap-3 mb-2">
+                        <p className="font-bold">✕ Failed — excluded from ranking</p>
+                        <ErrorClassBadge errorClass={classifyError(res.error)} />
+                      </div>
+                      <p className="font-mono text-sm text-muted">{res.error}</p>
+                      <p className="text-xs text-subtle mt-3 mb-0">
+                        This member will be excluded from the Stage 2 peer review and aggregate ranking.
+                        The council will proceed with the remaining members.
+                      </p>
+                    </div>
+                  )}
+
+                  {res && !res.error && (
+                    <div
+                      className="prose max-w-none text-sm"
+                      dangerouslySetInnerHTML={{ __html: res.content }}
+                    />
+                  )}
+
+                  {isStreamingThis && !res?.content && (
+                    <div className="flex items-center gap-2 text-subtle text-sm">
+                      <span className="font-mono animate-pulse">◌</span>
+                      Streaming response…
+                    </div>
+                  )}
+                </div>
               )}
-              {res && !isStreamingThis && !hasError && (
-                <span style={{ fontSize: '10px' }}>✓</span>
-              )}
-              {hasError && (
-                <span style={{ fontSize: '10px', fontWeight: 700 }}>✕</span>
-              )}
-            </button>
+            </div>
           );
         })}
       </div>
 
-      {/* Tab panel */}
-      <div
-        id={`panel-${activeMember?.member_id}`}
-        role="tabpanel"
-        aria-labelledby={`tab-${activeMember?.member_id}`}
-        style={{
-          padding: 'var(--space-6)',
-          animation: 'fadeIn 150ms ease',
-        }}
-      >
-        {/* Member info bar */}
-        {activeMember && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: 'var(--space-4)',
-              paddingBottom: 'var(--space-3)',
-              borderBottom: '1px solid var(--color-border)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-              <span
-                style={{
-                  fontFamily: 'var(--font-display)',
-                  fontWeight: 700,
-                  fontSize: 'var(--text-sm)',
-                }}
+      {/* Tablet/Desktop Tabs View (>=768px) */}
+      <div className="hidden md:block">
+        {/* Tab strip */}
+        <div
+          ref={tablistRef}
+          role="tablist"
+          aria-label="Council Member responses"
+          className="flex gap-1 border-b-2 border-border overflow-x-auto p-0"
+        >
+          {members.map((member, i) => {
+            const res = responses.find((r) => r.member_id === member.member_id);
+            const isActive = i === activeIndex;
+            const hasError = !!res?.error;
+            const isStreamingThis = streamingMemberIds?.has(member.member_id);
+
+            return (
+              <button
+                key={member.member_id}
+                id={`tab-${member.member_id}`}
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`panel-${member.member_id}`}
+                onClick={() => setActiveIndex(i)}
+                className={`px-4 py-2 font-display text-sm flex items-center gap-2 -mb-[2px] transition-colors whitespace-nowrap outline-none border-b-2 border-t-2
+                  ${isActive ? 'font-bold border-b-black text-black border-t-transparent' : 'font-normal border-b-transparent text-muted hover:text-black hover:border-b-grey-85'}
+                  ${hasError && !isActive ? 'border-t-black' : 'border-t-transparent'}`}
               >
-                {activeMember.display_label || `Council Seat ${activeIndex + 1}`}
-              </span>
-              <span className="badge badge-muted" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
-                {activeMember.model_id}
-              </span>
+                <ProviderBadge provider={member.provider} />
+                <span>{member.display_label || `Seat ${i + 1}`}</span>
+                {isStreamingThis && <span className="text-[10px] font-mono animate-pulse">◌</span>}
+                {res && !isStreamingThis && !hasError && <span className="text-[10px]">✓</span>}
+                {hasError && <span className="text-[10px] font-bold">✕</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Tab panel */}
+        <div
+          id={`panel-${activeMember?.member_id}`}
+          role="tabpanel"
+          aria-labelledby={`tab-${activeMember?.member_id}`}
+          className="p-6 animate-fade-in"
+        >
+          {/* Member info bar */}
+          {activeMember && (
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-border">
+              <div className="flex items-center gap-3">
+                <span className="font-display font-bold text-sm">
+                  {activeMember.display_label || `Council Seat ${activeIndex + 1}`}
+                </span>
+                <span className="badge badge-muted font-mono text-[11px]">
+                  {activeMember.model_id}
+                </span>
+              </div>
+              <div className="flex items-center gap-4">
+                <StatusLabel response={activeResponse} />
+                {activeResponse && !activeResponse.error && (
+                  <>
+                    <span className="text-[11px] font-mono text-subtle">{activeResponse.latency_ms}ms</span>
+                    <span className="text-[11px] font-mono text-subtle">{(activeResponse.tokens_in + activeResponse.tokens_out).toLocaleString()} tok</span>
+                    <span className="text-[11px] font-mono text-subtle">${activeResponse.cost_usd.toFixed(5)}</span>
+                  </>
+                )}
+              </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
-              <StatusLabel response={activeResponse} />
-              {activeResponse && !activeResponse.error && (
-                <>
-                  <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-subtle)' }}>
-                    {activeResponse.latency_ms}ms
-                  </span>
-                  <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-subtle)' }}>
-                    {(activeResponse.tokens_in + activeResponse.tokens_out).toLocaleString()} tok
-                  </span>
-                  <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-subtle)' }}>
-                    ${activeResponse.cost_usd.toFixed(5)}
-                  </span>
-                </>
-              )}
+          )}
+
+          {/* Content */}
+          {!activeResponse && !isStreaming && (
+            <div>
+              <div className="h-4 w-4/5 bg-grey-93 rounded animate-pulse mb-3" />
+              <div className="h-4 w-[95%] bg-grey-93 rounded animate-pulse mb-3" />
+              <div className="h-4 w-[70%] bg-grey-93 rounded animate-pulse mb-3" />
+              <p className="mt-3 text-sm text-subtle">Waiting for Council Seat {activeIndex + 1}…</p>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Content */}
-        {!activeResponse && !isStreaming && (
-          <div>
-            <div className="skeleton" style={{ height: '16px', width: '80%', marginBottom: '12px' }} />
-            <div className="skeleton" style={{ height: '16px', width: '95%', marginBottom: '12px' }} />
-            <div className="skeleton" style={{ height: '16px', width: '70%', marginBottom: '12px' }} />
-            <p style={{ marginTop: 'var(--space-3)', fontSize: 'var(--text-sm)', color: 'var(--color-text-subtle)' }}>
-              Waiting for Council Seat {activeIndex + 1}…
-            </p>
-          </div>
-        )}
+          {activeResponse?.error && (
+            <div role="alert" className="border-2 border-black rounded-md p-6">
+              <div className="flex items-center gap-3 mb-2">
+                <p className="font-bold">✕ Failed — excluded from ranking</p>
+                <ErrorClassBadge errorClass={classifyError(activeResponse.error)} />
+              </div>
+              <p className="font-mono text-sm text-muted">{activeResponse.error}</p>
+              <p className="text-xs text-subtle mt-3 mb-0">
+                This member will be excluded from the Stage 2 peer review and aggregate ranking.
+                The council will proceed with the remaining members.
+              </p>
+            </div>
+          )}
 
-        {activeResponse?.error && (
-          <div
-            role="alert"
-            style={{
-              border: '2px solid var(--grey-0)',
-              borderRadius: 'var(--radius-md)',
-              padding: 'var(--space-6)',
-            }}
-          >
-            <p style={{ fontWeight: 700, marginBottom: 'var(--space-2)' }}>
-              ✕ Failed — excluded from ranking
-            </p>
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
-              {activeResponse.error}
-            </p>
-            <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-subtle)', marginTop: 'var(--space-3)', marginBottom: 0 }}>
-              This member will be excluded from the Stage 2 peer review and aggregate ranking.
-              The council will proceed with the remaining members.
-            </p>
-          </div>
-        )}
+          {activeResponse && !activeResponse.error && (
+            <div
+              className="prose max-w-none text-sm"
+              dangerouslySetInnerHTML={{ __html: activeResponse.content }}
+            />
+          )}
 
-        {activeResponse && !activeResponse.error && (
-          <div
-            className="prose"
-            style={{ maxWidth: '100%' }}
-            dangerouslySetInnerHTML={{ __html: activeResponse.content }}
-          />
-        )}
+          {isStreaming && !activeResponse?.content && (
+            <div className="flex items-center gap-2 text-subtle text-sm">
+              <span className="font-mono animate-pulse">◌</span>
+              Streaming response…
+            </div>
+          )}
+        </div>
 
-        {isStreaming && !activeResponse?.content && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', color: 'var(--color-text-subtle)', fontSize: 'var(--text-sm)' }}>
-            <span style={{ fontFamily: 'var(--font-mono)' }}>◌</span>
-            Streaming response…
-          </div>
-        )}
-      </div>
-
-      {/* Keyboard hint */}
-      <div
-        style={{
-          padding: 'var(--space-2) var(--space-6)',
-          borderTop: '1px solid var(--color-border)',
-          fontSize: '11px',
-          color: 'var(--color-text-subtle)',
-          fontFamily: 'var(--font-mono)',
-        }}
-      >
-        Use <kbd style={{ padding: '0 3px', border: '1px solid var(--color-border)', borderRadius: '2px' }}>[</kbd>{' '}
-        / <kbd style={{ padding: '0 3px', border: '1px solid var(--color-border)', borderRadius: '2px' }}>]</kbd>{' '}
-        to navigate tabs
+        {/* Keyboard hint */}
+        <div className="px-6 py-2 border-t border-border text-[11px] text-subtle font-mono">
+          Use <kbd className="px-1 border border-border rounded-[2px]">[</kbd> / <kbd className="px-1 border border-border rounded-[2px]">]</kbd> to navigate tabs
+        </div>
       </div>
     </div>
   );
