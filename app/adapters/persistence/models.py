@@ -134,6 +134,10 @@ class ProviderKeyModel(Base):
     # Human-readable label the user assigned (e.g. "My OpenRouter key")
     label: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
+    # Provider-specific metadata (e.g. Notion workspace_id, parent_page_id)
+    # Stored as JSONB for extensibility — never contains secrets.
+    connection_meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
     # Whether this key has been verified via a test-connection call
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 

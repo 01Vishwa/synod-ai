@@ -12,38 +12,48 @@ import type { Stage } from '@/lib/api-client';
 
 // ─── Stage Progress Bar ────────────────────────────────────────────────────
 
-function StageStrip({ currentStage }: { currentStage: Stage | null }) {
-  const steps = [
+function StageStrip({ currentStage, viewStage, onViewChange }: { currentStage: Stage | null, viewStage: Stage | null, onViewChange: (s: Stage) => void }) {
+  const steps: {id: Stage, label: string}[] = [
     { id: 'stage_1', label: '① First Opinions' },
     { id: 'stage_2', label: '② Peer Review' },
     { id: 'stage_3', label: '③ Chairman Report' },
   ];
 
-  const currentIndex = steps.findIndex((s) => s.id === currentStage);
-  const activeIndex =
-    currentStage === 'done' || currentStage === 'archiving' ? 2 : Math.max(0, currentIndex);
+  const getStageIndex = (s: Stage | null) => {
+    if (s === 'done' || s === 'archiving') return 2;
+    if (s === 'error') return -1;
+    return steps.findIndex((step) => step.id === s);
+  };
+
+  const activeIndex = Math.max(0, getStageIndex(currentStage));
+  const viewIndex = Math.max(0, getStageIndex(viewStage || currentStage));
 
   return (
-    <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
+    <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2 col-span-12" role="tablist">
       {steps.map((step, i) => {
-        const isPast = i < activeIndex;
-        const isActive = i === activeIndex;
+        const isPastOrCurrent = i <= activeIndex;
+        const isSelected = i === viewIndex;
         const isFuture = i > activeIndex;
 
         return (
           <React.Fragment key={step.id}>
-            <div
-              className={`font-mono text-xs flex items-center gap-2 whitespace-nowrap transition-colors
-                ${isFuture ? 'text-subtle' : 'text-foreground'}
-                ${isActive ? 'font-bold' : 'font-normal'}
-                ${isPast ? 'text-muted' : ''}`}
+            <button
+              role="tab"
+              aria-selected={isSelected}
+              aria-disabled={isFuture}
+              disabled={isFuture}
+              onClick={() => isPastOrCurrent && onViewChange(step.id)}
+              className={`font-mono text-xs flex items-center gap-2 whitespace-nowrap transition-colors outline-none
+                ${isFuture ? 'text-subtle cursor-not-allowed' : 'text-foreground cursor-pointer hover:bg-grey-93 rounded px-2 py-1 -ml-2'}
+                ${isSelected ? 'font-bold' : 'font-normal'}
+                ${isPastOrCurrent && !isSelected ? 'text-muted' : ''}`}
             >
               {step.label}
-              {isActive && currentStage !== 'done' && currentStage !== 'error' && (
+              {i === activeIndex && currentStage !== 'done' && currentStage !== 'error' && (
                 <span className="text-[10px] animate-pulse">◌</span>
               )}
-              {isPast && <span className="text-[10px]">✓</span>}
-            </div>
+              {i < activeIndex && <span className="text-[10px]">✓</span>}
+            </button>
             {i < steps.length - 1 && (
               <span className="text-subtle">→</span>
             )}
@@ -91,6 +101,17 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
   const { state, status, stage, error, totalCostUsd, totalTokens, refetch } =
     useCouncilSession(params.sessionId);
   const dashboardSpec = useDashboardSpec(state);
+  
+  const [viewStage, setViewStage] = React.useState<Stage | null>(null);
+
+  // Auto-advance view stage when real stage progresses
+  const previousStageRef = React.useRef<Stage | null>(null);
+  React.useEffect(() => {
+    if (stage && stage !== previousStageRef.current) {
+       setViewStage(stage === 'done' || stage === 'archiving' ? 'stage_3' : stage);
+       previousStageRef.current = stage;
+    }
+  }, [stage]);
 
   if (status === 'loading' && !state) {
     return <SessionSkeleton />;
@@ -112,11 +133,13 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
   }
 
   const isActive = stage !== 'done' && stage !== 'error';
+  
+  const currentView = viewStage || (stage === 'done' || stage === 'archiving' ? 'stage_3' : stage);
 
   return (
-    <div className="max-w-[960px] mx-auto px-6 py-8">
+    <div className="max-w-[960px] mx-auto px-6 py-8 grid grid-cols-12 gap-x-6">
       {/* Session Header */}
-      <div className="flex justify-between items-start mb-6">
+      <div className="col-span-12 flex justify-between items-start mb-6">
         <div className="flex-1 pr-6">
           <h1 className="font-display text-2xl sm:text-3xl font-bold leading-snug mb-2">
             {state.user_query}
@@ -136,13 +159,13 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
         </div>
       </div>
 
-      <StageStrip currentStage={stage} />
+      <StageStrip currentStage={stage} viewStage={viewStage} onViewChange={setViewStage} />
 
       {/* Global Error Banner */}
       {status === 'error' && state.stage === 'error' && (
         <div
           role="alert"
-          className="border-2 border-black rounded-md p-6 mb-8"
+          className="col-span-12 border-2 border-black rounded-md p-6 mb-8"
         >
           <h3 className="text-xl font-display font-bold mb-2">Session Halted</h3>
           <p className="text-muted m-0">
@@ -153,7 +176,7 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
 
       {/* Research Digest (shown if present) */}
       {state.research_digest && (
-        <section aria-labelledby="research-heading" className="mb-8">
+        <section aria-labelledby="research-heading" className="col-span-12 mb-8">
           <h2 id="research-heading" className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
             Research Context
           </h2>
@@ -178,24 +201,21 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
         </section>
       )}
 
-      {/* Main Content Area — stages reveal as they complete */}
-      <div className="flex flex-col gap-12">
-        {/* Stage 1 — always visible once started */}
-        <section aria-labelledby="stage1-heading">
-          <h2 id="stage1-heading" className="sr-only">First Opinions</h2>
-          <MemberTabs
-            members={state.members}
-            responses={state.stage_1_responses}
-            streamingMemberIds={streamingMemberIds}
-          />
-        </section>
+      {/* Main Content Area — strictly stage-gated navigation */}
+      <div className="col-span-12 flex flex-col gap-12">
+        
+        {currentView === 'stage_1' && (
+          <section aria-labelledby="stage1-heading">
+            <h2 id="stage1-heading" className="sr-only">First Opinions</h2>
+            <MemberTabs
+              members={state.members}
+              responses={state.stage_1_responses}
+              streamingMemberIds={streamingMemberIds}
+            />
+          </section>
+        )}
 
-        {/* Stage 2 — peer reviews */}
-        {(stage === 'stage_2' ||
-          stage === 'stage_3' ||
-          stage === 'archiving' ||
-          stage === 'done' ||
-          (stage === 'error' && state.stage_2_responses.length > 0)) && (
+        {currentView === 'stage_2' && (
           <section aria-labelledby="stage2-heading">
             <RankingTable
               rankings={state.rankings}
@@ -206,8 +226,7 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
           </section>
         )}
 
-        {/* Stage 3 — chairman synthesis */}
-        {(stage === 'stage_3' || stage === 'archiving' || stage === 'done') && (
+        {currentView === 'stage_3' && (
           <section aria-labelledby="stage3-heading">
             <ChairmanReport
               reportMd={state.final_report_md ?? ''}

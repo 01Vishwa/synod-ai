@@ -77,11 +77,12 @@ export const transition = {
   slow:   '350ms ease',
 } as const;
 
-// ─── Breakpoints ────────────────────────────────────────────────────────────
+// ─── Breakpoints ─────────────────────────────────────────────────────
+// PRD §12.7: mobile <768px | tablet 768–1199px | desktop ≥1200px
 export const breakpoint = {
   mobile:  768,
-  tablet:  1200,
-  desktop: 1440,
+  tablet:  768,
+  desktop: 1200,
 } as const;
 
 // ─── Layout ─────────────────────────────────────────────────────────────────

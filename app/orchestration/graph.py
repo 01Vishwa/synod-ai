@@ -20,7 +20,8 @@ from app.orchestration.nodes.research import research_node
 from app.orchestration.nodes.stage_1 import stage_1_node, Stage1Task
 from app.orchestration.nodes.stage_2 import stage_2_node, Stage2Task
 from app.orchestration.nodes.stage_3 import stage_3_node
-from app.orchestration.nodes.archive import archive_node
+from app.orchestration.nodes.notion_archivist_node import notion_archivist_node
+from app.orchestration.nodes.dashboard_builder_node import dashboard_builder_node
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +177,9 @@ def build_graph() -> Any:
     builder.add_node("stage_2_review", stage_2_node)
     builder.add_node("stage_3_setup", setup_stage_3)
     builder.add_node("stage_3_synthesis", stage_3_node)
-    builder.add_node("archive", archive_node)
+    builder.add_node("dashboard_build_s2", dashboard_builder_node)
+    builder.add_node("dashboard_build_s3", dashboard_builder_node)
+    builder.add_node("archive", notion_archivist_node)
     builder.add_node("finish", finish_session)
 
     # Edges
@@ -194,14 +197,16 @@ def build_graph() -> Any:
     # Stage 2 Setup -> Stage 2 Reviews (Fan-out)
     builder.add_conditional_edges("stage_2_setup", route_stage_2)
     
-    # Stage 2 Reviews -> Stage 3 Setup (Fan-in)
-    builder.add_edge("stage_2_review", "stage_3_setup")
+    # Stage 2 Reviews -> Dashboard Build S2 (Fan-in) -> Stage 3 Setup
+    builder.add_edge("stage_2_review", "dashboard_build_s2")
+    builder.add_edge("dashboard_build_s2", "stage_3_setup")
     
     # Stage 3 Setup -> Stage 3 Synthesis
     builder.add_edge("stage_3_setup", "stage_3_synthesis")
     
-    # Stage 3 Synthesis -> Archive
-    builder.add_edge("stage_3_synthesis", "archive")
+    # Stage 3 Synthesis -> Dashboard Build S3 -> Archive
+    builder.add_edge("stage_3_synthesis", "dashboard_build_s3")
+    builder.add_edge("dashboard_build_s3", "archive")
     
     # Archive -> Finish
     builder.add_edge("archive", "finish")

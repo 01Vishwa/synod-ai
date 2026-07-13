@@ -111,16 +111,31 @@ export interface TestConnectionResult {
 
 // ─── HTTP Helper ──────────────────────────────────────────────────────────
 
+import { supabase } from '@/lib/supabase/client';
+
 async function apiFetch<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
   const url = `${API_BASE}/api/v1${path}`;
+  
+  // Always call getUser() first — it validates the session server-side and
+  // triggers a token refresh if the current access_token is expired.
+  // Then call getSession() to pick up the (potentially refreshed) access_token.
+  await supabase.auth.getUser();
+  const { data: { session } } = await supabase.auth.getSession();
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string> ?? {}),
+  };
+
+  if (session?.access_token) {
+    headers['Authorization'] = `Bearer ${session.access_token}`;
+  }
+
   const res = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options?.headers ?? {}),
-    },
+    headers,
     ...options,
   });
 
@@ -143,6 +158,13 @@ export class ApiError extends Error {
   }
 }
 
+export interface SessionListResponse {
+  items: SessionSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 // ─── Council Sessions ─────────────────────────────────────────────────────
 
 export const sessionsApi = {
@@ -156,7 +178,7 @@ export const sessionsApi = {
     apiFetch<CouncilState>(`/sessions/${sessionId}`),
 
   list: () =>
-    apiFetch<SessionSummary[]>('/sessions'),
+    apiFetch<SessionListResponse>('/sessions'),
 
   getStreamUrl: (sessionId: string) =>
     `${API_BASE}/api/v1/sessions/${sessionId}/stream`,
@@ -187,12 +209,24 @@ export const providersApi = {
 // ─── Integrations ─────────────────────────────────────────────────────────
 
 export const integrationsApi = {
-  getStatus: () =>
-    apiFetch<{
-      research: { tavily: boolean; anakin: boolean };
-      notion: { connected: boolean };
-      langfuse: { connected: boolean };
-    }>('/research/keys'), // placeholder mapping until specific status endpoint built
+  getStatus: async () => {
+    const [researchRes, notionRes] = await Promise.allSettled([
+      apiFetch<any[]>('/research/keys'),
+      apiFetch<any>('/notion/status')
+    ]);
+
+    const researchKeys = researchRes.status === 'fulfilled' ? researchRes.value : [];
+    const notionConnected = notionRes.status === 'fulfilled';
+
+    return {
+      research: {
+        tavily: researchKeys.some(k => k.provider === 'tavily'),
+        anakin: researchKeys.some(k => k.provider === 'anakin'),
+      },
+      notion: { connected: notionConnected },
+      langfuse: { connected: false },
+    };
+  },
 
   saveResearchKey: (provider: ResearchProvider, api_key: string) =>
     apiFetch<{ ok: boolean }>(`/research/keys`, {

@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ResearchProviderCard } from '@/components/settings/ResearchProviderCard';
 import { NotionConnectCard } from '@/components/settings/NotionConnectCard';
 import { integrationsApi, type ResearchProvider } from '@/lib/api-client';
+import { useToast } from '@/hooks/useToast';
 
 function Toggle({
   id, checked, onChange, label, description,
@@ -47,6 +48,9 @@ export default function IntegrationsSettingsPage() {
   const [researchProvider, setResearchProvider] = useState<ResearchProvider>('tavily');
   const [archiveToNotion, setArchiveToNotion] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const { toast } = useToast();
 
   useEffect(() => {
     setMounted(true);
@@ -54,7 +58,20 @@ export default function IntegrationsSettingsPage() {
     setResearchProvider((localStorage.getItem('synod_research_provider') as ResearchProvider) || 'tavily');
     setArchiveToNotion(localStorage.getItem('synod_archive_notion') === 'true');
     fetchStatus();
-  }, []);
+
+    const notionStatus = searchParams.get('notion');
+    const notionError = searchParams.get('notion_error');
+
+    if (notionStatus === 'connected') {
+      toast('Notion connected successfully!', 'success');
+      // Clean up URL
+      router.replace('/settings/integrations');
+    } else if (notionError) {
+      toast(`Notion connection failed: ${notionError}`, 'error');
+      // Clean up URL
+      router.replace('/settings/integrations');
+    }
+  }, [searchParams, toast, router]);
 
   function handleResearchEnabledChange(val: boolean) {
     setResearchEnabled(val);
@@ -82,15 +99,8 @@ export default function IntegrationsSettingsPage() {
   }
 
   return (
-    <div className="max-w-[720px] mx-auto px-6 py-8">
-      <div className="mb-6">
-        <Link href="/" className="no-underline text-muted text-sm inline-flex items-center gap-2 hover:text-foreground transition-colors">
-          <span>←</span> Back to Council
-        </Link>
-      </div>
-
+    <div className="animate-fade-in">
       <div className="mb-8">
-        <h1 className="font-display text-3xl font-bold mb-2">Integrations</h1>
         <p className="text-muted text-sm m-0">
           Connect auxiliary services for live web research and session archiving.
         </p>

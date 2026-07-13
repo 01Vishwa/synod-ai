@@ -9,6 +9,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { SessionHistorySidebar } from './SessionHistorySidebar';
+import { UserMenu } from './UserMenu';
 
 function MenuIcon() {
   return (
@@ -68,15 +69,7 @@ function Header({ onMenuToggle, isMobileMenuOpen }: HeaderProps) {
 
       <div className="flex-1" />
 
-      <Link href="/settings/providers" className="no-underline">
-        <button className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium border border-transparent hover:bg-grey-93 rounded transition-colors" id="header-settings-link">
-          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <circle cx="10" cy="10" r="3" />
-            <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.22 4.22l1.42 1.42M14.36 14.36l1.42 1.42M4.22 15.78l1.42-1.42M14.36 5.64l1.42-1.42" />
-          </svg>
-          <span className="hidden sm:inline">Settings</span>
-        </button>
-      </Link>
+      <UserMenu />
     </header>
   );
 }
