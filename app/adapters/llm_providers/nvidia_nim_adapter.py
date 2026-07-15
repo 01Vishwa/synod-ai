@@ -22,9 +22,9 @@ import time
 from typing import Optional
 
 import httpx
-from openai import AsyncOpenAI, APIError, AuthenticationError, RateLimitError as OpenAIRateLimitError
+from openai import AsyncOpenAI, APIError, AuthenticationError as OpenAIAuthError, RateLimitError as OpenAIRateLimitError
 
-from app.core.exceptions import ProviderError, RateLimitError
+from app.core.exceptions import AuthenticationError, ProviderError, RateLimitError, UpstreamTimeoutError
 from app.domain.ports.provider_adapter import (
     ChatMessage,
     ChatResponse,
@@ -75,8 +75,8 @@ class NvidiaNimAdapter(ProviderAdapter):
                 max_tokens=max_tokens,
                 timeout=timeout_s,
             )
-        except AuthenticationError as exc:
-            raise ProviderError(
+        except OpenAIAuthError as exc:
+            raise AuthenticationError(
                 message="NVIDIA NIM authentication failed — check your nvapi key.",
                 provider="nvidia_nim",
             ) from exc
@@ -84,6 +84,18 @@ class NvidiaNimAdapter(ProviderAdapter):
             raise RateLimitError(
                 message="NVIDIA NIM rate limit exceeded. The free tier has a modest RPM ceiling.",
                 details={"provider": "nvidia_nim"},
+            ) from exc
+        except httpx.TimeoutException as exc:
+            raise UpstreamTimeoutError(
+                message=f"NVIDIA NIM call timed out after {timeout_s}s.",
+                provider="nvidia_nim",
+            ) from exc
+        except APIError as exc:
+            retryable = exc.status_code is not None and exc.status_code >= 500
+            raise ProviderError(
+                message=f"NVIDIA NIM API error ({exc.status_code}): {exc.message}",
+                provider="nvidia_nim",
+                retryable=retryable,
             ) from exc
         except Exception as exc:
             raise ProviderError(

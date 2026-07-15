@@ -45,7 +45,7 @@ export function useCouncilSession(sessionId: string | null): UseCouncilSessionRe
       setStatus('streaming');
 
       // 2. Subscribe to SSE deltas
-      const streamUrl = sessionsApi.getStreamUrl(id);
+      const streamUrl = await sessionsApi.getStreamUrl(id);
       subRef.current?.unsubscribe();
       subRef.current = createSessionStream(
         id,
@@ -65,8 +65,15 @@ export function useCouncilSession(sessionId: string | null): UseCouncilSessionRe
           }
         },
         (err) => {
-          console.error('[useCouncilSession] SSE error:', err);
-          setError('Connection to the session stream was interrupted. Retrying…');
+          // err is an Error object set by session.failed / session.stream_timeout handlers,
+          // or a raw SSE Event from EventSource.onerror (network interruption).
+          console.error('[useCouncilSession] SSE terminal error:', err);
+          setStatus('error');
+          if (err instanceof Error) {
+            setError(err.message);
+          } else {
+            setError('Connection to the session stream was interrupted.');
+          }
         },
       );
     } catch (err) {

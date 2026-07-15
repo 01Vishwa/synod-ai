@@ -11,10 +11,13 @@ import logging
 import uuid
 from typing import Any, AsyncGenerator
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from app.api.v1.deps import CurrentUserId, SessionRepo, Tracer
+from app.adapters.persistence.database import async_session_factory
+from app.adapters.persistence.postgres_session_repository import PostgresSessionRepository
+from app.api.v1.deps import CurrentUserId, CurrentUserIdSse, DbSession, SessionRepo, Tracer
 from app.api.v1.schemas.sessions import (
     SessionCreateRequest,
     SessionListResponse,
@@ -43,18 +46,20 @@ def _sse_event(event_type: str, payload: Any) -> dict[str, str]:
 
 # Fields excluded from state_delta events sent to the frontend.
 # anonymization_map is server-only and must never leave the backend.
-_STATE_DELTA_EXCLUDE = frozenset({"anonymization_map", "user_id"})
+_STATE_DELTA_EXCLUDE = frozenset({"anonymization_map", "user_id", "_execution_status"})
 
 
 def _safe_state_delta(state: CouncilState) -> dict[str, Any]:
     """Return a copy of state with server-only fields stripped."""
     return {k: v for k, v in state.items() if k not in _STATE_DELTA_EXCLUDE}
 
+
 @router.post("", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_session(
     req: SessionCreateRequest,
     user_id: CurrentUserId,
     repo: SessionRepo,
+    db_session: DbSession,
     tracer: Tracer,
     background_tasks: BackgroundTasks,
 ) -> Any:
@@ -65,12 +70,56 @@ async def create_session(
     orchestrator in the background. The client connects to the /stream endpoint
     using the returned session_id to receive live updates.
     """
+    try:
+        return await _create_session_impl(req, user_id, repo, db_session, tracer, background_tasks)
+    except HTTPException:
+        raise  # let FastAPI handle 4xx as-is
+    except Exception as exc:
+        logger.exception(
+            "create_session: unhandled exception — session could not be created. "
+            "user_id=%s error=%s",
+            user_id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": "session_creation_failed",
+                "message": "Failed to create session. Check server logs for details.",
+            },
+        ) from exc
+
+
+async def _create_session_impl(
+    req: SessionCreateRequest,
+    user_id: str,
+    repo: SessionRepo,
+    db_session: AsyncSession,
+    tracer: Tracer,
+    background_tasks: BackgroundTasks,
+) -> Any:
+    """Core logic isolated for testability and clean error propagation.
+
+    Transaction ordering invariant:
+        INSERT → flush → COMMIT → add_task
+
+    The background runner opens an independent AsyncSession. That session will
+    only see committed rows. We must commit the session creation before we
+    schedule the background task — otherwise the runner starts before the row
+    is visible and every subsequent DB operation fails with "session not found".
+    """
     session_id = str(uuid.uuid4())
+
+    logger.info(
+        "SESSION_CREATE_STARTED",
+        extra={"session_id": session_id, "user_id": str(user_id)},
+    )
 
     # Build initial domain state
     initial_state: CouncilState = {
         "session_id": session_id,
-        "trace_id": "",  # populated below
+        "user_id": user_id,        # declared field — will survive LangGraph serialisation
+        "trace_id": "",            # populated below
         "user_query": req.user_query,
         "members": [
             {
@@ -79,6 +128,7 @@ async def create_session(
                 "model_id": m.model_id,
                 "display_label": m.display_label,
                 "role": m.role,
+                "api_key": m.api_key,
             }
             for m in req.members
         ],
@@ -91,7 +141,7 @@ async def create_session(
         "stage_2_responses": [],
         "rankings": [],
         "aggregate_scores": {},
-        "chairman_member_id": req.pinned_chairman_member_id or "",
+        "chairman_member_id": req.chairman_member_id or "",
         "final_report_md": None,
         "citations": [],
         "notion_page_url": None,
@@ -110,18 +160,106 @@ async def create_session(
     )
     initial_state["trace_id"] = trace_context.trace_id
 
-    # Add user context so the repository can properly associate the session
-    initial_state["user_id"] = user_id  # type: ignore
-
-    # Persist the initial state
+    # Persist the initial state (flush within the current UoW — not yet committed)
     persisted_state = await repo.create(initial_state)
+
+    logger.info(
+        "SESSION_ROW_FLUSHED",
+        extra={"session_id": session_id, "user_id": str(user_id)},
+    )
+
+    # ── CRITICAL: commit BEFORE scheduling the background task ─────────────
+    # FastAPI background tasks run in the same event-loop iteration as the
+    # response, but the get_db() context manager only commits when the route
+    # handler returns (after the response has been sent). Because the runner
+    # opens an *independent* AsyncSession, it will not see the uncommitted row.
+    #
+    # Explicit commit here makes the row durable before add_task() is called.
+    # SQLAlchemy is idempotent: the get_db() context manager will call commit()
+    # again on clean exit, which is a no-op on an already-clean session.
+    logger.info(
+        "SESSION_CREATION_COMMIT_STARTED",
+        extra={"session_id": session_id, "user_id": str(user_id)},
+    )
+    await db_session.commit()
+    logger.info(
+        "SESSION_CREATION_COMMITTED",
+        extra={"session_id": session_id, "user_id": str(user_id)},
+    )
+
+    logger.info(
+        "SESSION_CREATED",
+        extra={
+            "session_id": str(session_id),
+            "user_id": str(user_id),
+        },
+    )
+
+    logger.info(
+        "COUNCIL_EXECUTION_SCHEDULING",
+        extra={
+            "session_id": str(session_id),
+            "user_id": str(user_id),
+        },
+    )
 
     # Dispatch the LangGraph execution to a background task so this
     # HTTP endpoint returns immediately with the created session metadata.
-    background_tasks.add_task(run_council_graph, persisted_state, trace_context)
+    background_tasks.add_task(run_council_graph, persisted_state, trace_context, user_id)
 
     # Return the REST-friendly response schema
-    return SessionResponse(**persisted_state)
+    return _state_to_response(persisted_state, tracer)
+
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _state_to_response(state: dict[str, Any], tracer: Any | None = None) -> SessionResponse:
+    """
+    Translate a raw CouncilState dict into the SessionResponse schema.
+
+    CouncilState does NOT carry a `member_count` field — it must be derived
+    from ``len(state["members"])``.  This function is the single place that
+    does that mapping so callers never accidentally pass the raw dict to
+    ``SessionResponse(**state)`` (which would crash with a ValidationError).
+    """
+    trace_url: str | None = None
+    if tracer is not None:
+        try:
+            trace_url = tracer.get_trace_url(state.get("trace_id", ""))
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Sum costs from both stages
+    total_cost = sum(
+        r.get("cost_usd", 0.0)
+        for r in (
+            state.get("stage_1_responses", []) + state.get("stage_2_responses", [])
+        )
+    )
+
+    return SessionResponse(
+        session_id=state["session_id"],
+        stage=state["stage"],
+        user_query=state["user_query"],
+        member_count=len(state.get("members", [])),  # derived — not stored in CouncilState
+        research_enabled=state.get("research_enabled", False),
+        research_provider=state.get("research_provider"),
+        stage_1_responses=state.get("stage_1_responses", []),
+        stage_2_responses=state.get("stage_2_responses", []),
+        rankings=state.get("rankings", []),
+        aggregate_scores=state.get("aggregate_scores", {}),
+        chairman_member_id=state.get("chairman_member_id") or None,
+        final_report_md=state.get("final_report_md"),
+        citations=state.get("citations", []),
+        total_cost_usd=round(total_cost, 6),
+        notion_page_url=state.get("notion_page_url"),
+        trace_url=trace_url,
+        dashboard_spec=state.get("dashboard_spec"),
+        errors=state.get("errors", []),
+        created_at=state.get("created_at", ""),
+        updated_at=state.get("updated_at", ""),
+    )
 
 
 @router.get("", response_model=SessionListResponse)
@@ -133,7 +271,7 @@ async def list_sessions(
 ) -> Any:
     """Paginated list of previous council sessions."""
     states = await repo.list_sessions(user_id=user_id, limit=limit, offset=offset)
-    
+
     # We don't have a count query in the current repo interface, so we return a simplified total
     # For a real implementation, we'd add a `count_sessions` method to the repository.
     return SessionListResponse(
@@ -144,7 +282,7 @@ async def list_sessions(
                 "user_query": s["user_query"],
                 "member_count": len(s.get("members", [])),
                 "total_cost_usd": sum(
-                    r.get("cost_usd", 0) 
+                    r.get("cost_usd", 0)
                     for r in s.get("stage_1_responses", []) + s.get("stage_2_responses", [])
                 ),
                 "created_at": s["created_at"],
@@ -171,17 +309,13 @@ async def get_session(
     if not state:
         raise HTTPException(status_code=404, detail="Session not found.")
 
-        
-    response = SessionResponse(**state)
-    response.trace_url = tracer.get_trace_url(state["trace_id"])
-    return response
+    return _state_to_response(state, tracer)
 
 
 @router.get("/{session_id}/stream")
 async def stream_session(
     session_id: str,
-    user_id: CurrentUserId,
-    repo: SessionRepo,
+    user_id: CurrentUserIdSse,
 ) -> EventSourceResponse:
     """
     Server-Sent Events (SSE) endpoint for live council updates.
@@ -189,55 +323,89 @@ async def stream_session(
     Polls the session repository every 500 ms and emits typed SSE events:
       - ``state_delta``           — emitted on every stage transition
       - ``dashboard_spec_update`` — emitted whenever dashboard_spec changes
-      - ``done``                  — emitted once the session reaches a terminal state
+      - ``session.failed``        — emitted when the session reaches stage=error
+      - ``session.completed``     — emitted when the session reaches stage=done
+      - ``session.stream_timeout``— emitted when SSE max idle time is reached
+      - ``done``                  — emitted on any terminal condition (legacy compat)
 
-    The graph runs as a background task (started by POST /sessions). This endpoint
-    observes state transitions by polling the DB checkpoint written after each node.
+    Design: Each polling cycle opens and closes its own short-lived DB session
+    so we never hold a single SQLAlchemy transaction open for 5 minutes. This
+    prevents connection pool exhaustion and avoids stale transaction reads.
 
-    Design: polling avoids re-architecting the background-task runner and is
-    imperceptible to users since each LLM call takes multiple seconds.
+    SSE Auth: The JWT is passed via ?token= query parameter because the browser's
+    native EventSource API cannot attach custom headers. The token is verified via
+    the same JWKS path as the Authorization header — same security level.
+
+    Security: The ?token= query parameter is NOT logged (LoggingMiddleware only
+    logs request.url.path, not the full URL with query string).
     """
-    # ── Auth guard ────────────────────────────────────────────────────────────
-    initial = await repo.load(session_id, user_id=user_id)
+    # ── Auth guard — verify session ownership before opening the stream ───
+    async with async_session_factory() as check_session:
+        repo = PostgresSessionRepository(check_session)
+        initial = await repo.load(session_id, user_id=user_id)
+
     if not initial:
         raise HTTPException(status_code=404, detail="Session not found.")
 
     async def event_generator() -> AsyncGenerator[dict[str, Any], None]:
-        _POLL_INTERVAL_SECS = 0.5
+        _INITIAL_POLL_SECS = 2.0
+        _MAX_POLL_SECS = 10.0
+        _MAX_IDLE_TIME_SECS = 300.0   # 5 minutes max wait
         _TERMINAL_STAGES = {"done", "error"}
-        _MAX_IDLE_POLLS = 600   # 5 minutes at 500 ms — hard cap against hung sessions
 
         prev_stage: str = ""
         prev_dashboard_spec: Any = _SENTINEL
-        idle_polls: int = 0
 
-        # Emit initial state so the client has a starting snapshot
-        snapshot = await repo.load(session_id)
+        current_poll_interval = _INITIAL_POLL_SECS
+        idle_time_secs = 0.0
+
+        # Emit initial state so the client has a starting snapshot.
+        # Each load uses a fresh short-lived session — no long-lived transaction.
+        async with async_session_factory() as poll_session:
+            repo = PostgresSessionRepository(poll_session)
+            snapshot = await repo.load(session_id, user_id=user_id)
+
         if snapshot:
             yield _sse_event("state_delta", _safe_state_delta(snapshot))
             prev_stage = snapshot.get("stage", "")
             prev_dashboard_spec = snapshot.get("dashboard_spec")
 
-        while idle_polls < _MAX_IDLE_POLLS:
-            await asyncio.sleep(_POLL_INTERVAL_SECS)
+            # If the session was already terminal on first load, emit and exit.
+            if prev_stage in _TERMINAL_STAGES:
+                for ev in _emit_terminal(snapshot, prev_stage):
+                    yield ev
+                return
 
+        while idle_time_secs < _MAX_IDLE_TIME_SECS:
+            await asyncio.sleep(current_poll_interval)
+
+            # ── Short-lived session per poll ──────────────────────────────
+            # We open and close a new session for every poll cycle.
+            # This avoids holding a DB connection open for the full 5-minute
+            # SSE lifetime and ensures we always read the latest committed data.
             try:
-                state = await repo.load(session_id, user_id=user_id)
+                async with async_session_factory() as poll_session:
+                    repo = PostgresSessionRepository(poll_session)
+                    state = await repo.load(session_id, user_id=user_id)
             except Exception as exc:
                 logger.warning(
                     "stream_session: repo.load failed for %s: %s", session_id, exc
                 )
-                idle_polls += 1
+                idle_time_secs += current_poll_interval
+                current_poll_interval = min(current_poll_interval * 1.5, _MAX_POLL_SECS)
                 continue
 
             if not state:
-                idle_polls += 1
+                idle_time_secs += current_poll_interval
+                current_poll_interval = min(current_poll_interval * 1.5, _MAX_POLL_SECS)
                 continue
 
             current_stage: str = state.get("stage", "")
             current_spec: Any = state.get("dashboard_spec")
 
-            # ── Stage change → emit state_delta ──────────────────────────────
+            state_changed = (current_stage != prev_stage) or (current_spec != prev_dashboard_spec)
+
+            # ── Stage change → emit state_delta ──────────────────────────
             if current_stage != prev_stage:
                 logger.debug(
                     "stream_session: stage transition %s → %s for session %s",
@@ -247,9 +415,8 @@ async def stream_session(
                 )
                 yield _sse_event("state_delta", _safe_state_delta(state))
                 prev_stage = current_stage
-                idle_polls = 0  # reset idle counter on real activity
 
-            # ── dashboard_spec changed → emit dashboard_spec_update ───────────
+            # ── dashboard_spec changed → emit dashboard_spec_update ───────
             if current_spec != prev_dashboard_spec:
                 if current_spec is not None:
                     logger.info(
@@ -263,28 +430,105 @@ async def stream_session(
                         {"dashboard_spec": current_spec},
                     )
                 prev_dashboard_spec = current_spec
-                idle_polls = 0
 
-            # ── Terminal stage → emit done and close ──────────────────────────
+            if state_changed:
+                idle_time_secs = 0.0
+                current_poll_interval = _INITIAL_POLL_SECS  # reset backoff on activity
+            else:
+                idle_time_secs += current_poll_interval
+                current_poll_interval = min(current_poll_interval * 1.5, _MAX_POLL_SECS)
+
+            # ── Terminal stage → emit structured terminal event and close ──
             if current_stage in _TERMINAL_STAGES:
                 logger.info(
                     "stream_session: session %s reached terminal stage '%s' — closing SSE",
                     session_id,
                     current_stage,
                 )
-                yield _sse_event("done", {"status": current_stage})
+                for ev in _emit_terminal(state, current_stage):
+                    yield ev
                 return
 
-            idle_polls += 1
-
-        # Hard cap reached — close the stream gracefully
+        # ── Max idle cap reached ──────────────────────────────────────────
+        # The session is still running (or stuck). Emit a structured timeout
+        # event so the frontend can show an error instead of an infinite spinner.
         logger.warning(
-            "stream_session: max idle polls reached for session %s — closing SSE",
+            "stream_session: max idle time reached for session %s — closing SSE",
             session_id,
         )
+        yield _sse_event(
+            "session.stream_timeout",
+            {
+                "session_id": session_id,
+                "stage": prev_stage or "stage_1",
+                "error": {
+                    "code": "STREAM_TIMEOUT",
+                    "message": (
+                        "The session stream timed out waiting for a state change. "
+                        "The background worker may have failed silently. "
+                        "Reload the page to see the latest session state."
+                    ),
+                },
+            },
+        )
+        # Also emit the legacy done event for backwards compat
         yield _sse_event("done", {"status": "timeout"})
 
     return EventSourceResponse(event_generator())
+
+
+def _emit_terminal(state: dict[str, Any], stage: str) -> list[dict[str, str]]:
+    """
+    Return a list of structured SSE events for a terminal session state.
+
+    Returns both the typed semantic event (session.completed / session.failed)
+    and the legacy 'done' event for backwards compatibility with older clients.
+
+    Returns a list (not a generator) so it can be iterated inside an async
+    generator without triggering the 'yield from inside async function' error.
+    """
+    events: list[dict[str, str]] = []
+
+    if stage == "error":
+        # Extract the most recent error for the frontend error display
+        errors = state.get("errors", []) or []
+        last_error = errors[-1] if errors else {}
+        error_message = (
+            last_error.get("message", "An unexpected error occurred during council execution.")
+            if isinstance(last_error, dict)
+            else str(last_error)
+        )
+        # Sanitize: never expose stack traces beyond 500 chars
+        if len(error_message) > 500:
+            error_message = error_message[:500] + "…"
+
+        events.append(_sse_event(
+            "session.failed",
+            {
+                "session_id": state.get("session_id", ""),
+                "stage": stage,
+                "state": "failed",
+                "error": {
+                    "code": "EXECUTION_FAILED",
+                    "message": error_message,
+                },
+            },
+        ))
+        # Legacy compat
+        events.append(_sse_event("done", {"status": "error"}))
+    else:
+        events.append(_sse_event(
+            "session.completed",
+            {
+                "session_id": state.get("session_id", ""),
+                "stage": stage,
+                "state": "completed",
+            },
+        ))
+        # Legacy compat
+        events.append(_sse_event("done", {"status": "done"}))
+
+    return events
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -297,5 +541,5 @@ async def delete_session(
     state = await repo.load(session_id, user_id=user_id)
     if not state:
         raise HTTPException(status_code=404, detail="Session not found.")
-        
+
     await repo.delete(session_id, user_id=user_id)

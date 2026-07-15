@@ -18,11 +18,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ── LLM Provider keys ─────────────────────────────────────────────────────
 
-ProviderSlug = Literal["openrouter", "nvidia_nim", "github_models"]
+ProviderSlug = Literal["openrouter", "nvidia_nim"]
 ResearchProviderSlug = Literal["tavily", "anakin"]
 IntegrationSlug = Literal["notion"]
 
-AnyProviderSlug = Literal["openrouter", "nvidia_nim", "github_models", "tavily", "anakin", "notion"]
+AnyProviderSlug = Literal["openrouter", "nvidia_nim", "tavily", "anakin", "notion"]
 
 
 class ProviderKeyCreateRequest(BaseModel):

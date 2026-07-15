@@ -23,10 +23,11 @@ from typing_extensions import TypedDict
 class CouncilMemberConfig(TypedDict):
     """Static configuration for one seat in the council."""
     member_id: str                          # stable opaque id, e.g. "member_ap0mr8y"
-    provider: Literal["openrouter", "nvidia_nim", "github_models"]
+    provider: Literal["openrouter", "nvidia_nim"]
     model_id: str                           # e.g. "anthropic/claude-sonnet-4.5"
     display_label: str                      # user-facing name, e.g. "Council Seat 1"
     role: Literal["member", "chairman"]
+    api_key: Optional[str]                  # optional provider API key
 
 
 class MemberResponse(TypedDict):
@@ -69,6 +70,7 @@ class CouncilState(TypedDict):
     """
     # Identity
     session_id: str
+    user_id: str                            # Supabase auth.users UUID — required for tenant isolation
     trace_id: str                           # LangSmith / Langfuse trace id
 
     # User inputs

@@ -13,7 +13,7 @@ from typing import Any, TypedDict
 
 from langchain_core.runnables.config import RunnableConfig
 
-from app.adapters.llm_providers.factory import ProviderAdapterFactory
+from app.core.exceptions import AuthenticationError, FallbackExhaustedError
 from app.domain.council_state import (
     CouncilMemberConfig,
     MemberResponse,
@@ -107,14 +107,18 @@ async def stage_2_node(task: Stage2Task, config: RunnableConfig) -> dict[str, An
 
     try:
         api_key = await fetch_decrypted_key(deps, task["user_id"], member["provider"])
-        adapter = ProviderAdapterFactory.create(member["provider"])
         
-        response = await adapter.chat(
+        # Use the LLMRouter (retry + circuit breaker) instead of calling
+        # the adapter directly.
+        response = await deps.llm_router.chat(
             messages=messages,
             model_id=member["model_id"],
+            provider=member["provider"],
             api_key=api_key,
+            user_id=task["user_id"],
             temperature=0.4,  # Lower temp for more analytical ranking
             max_tokens=1500,
+            timeout_s=60,
         )
 
         ranking_order = _parse_ranking(response.content, expected_labels) # type: ignore
@@ -149,6 +153,65 @@ async def stage_2_node(task: Stage2Task, config: RunnableConfig) -> dict[str, An
         return {
             "stage_2_responses": [member_resp],
             "rankings": [ranking_entry],
+        }
+
+    except AuthenticationError as exc:
+        logger.error(
+            "Stage 2: authentication failed for %s provider=%s: %s",
+            member["member_id"],
+            member["provider"],
+            exc,
+        )
+        await deps.tracer.end_span(span, error=exc)
+        error_resp = MemberResponse(
+            member_id=member["member_id"],
+            stage="stage_2",
+            content="",
+            anonymized_label=None,
+            latency_ms=0,
+            tokens_in=0,
+            tokens_out=0,
+            cost_usd=0.0,
+            error=f"Authentication failed for provider '{member['provider']}'. "
+                  "Please update your API key in Settings.",
+        )
+        return {
+            "stage_2_responses": [error_resp],
+            "errors": [{
+                "member_id": member["member_id"],
+                "stage": "stage_2",
+                "message": f"authentication_error:{exc}",
+                "timestamp": ""
+            }]
+        }
+
+    except FallbackExhaustedError as exc:
+        logger.error(
+            "Stage 2: all retry attempts exhausted for %s provider=%s chain=%s",
+            member["member_id"],
+            member["provider"],
+            exc.chain,
+        )
+        await deps.tracer.end_span(span, error=exc)
+        error_resp = MemberResponse(
+            member_id=member["member_id"],
+            stage="stage_2",
+            content="",
+            anonymized_label=None,
+            latency_ms=0,
+            tokens_in=0,
+            tokens_out=0,
+            cost_usd=0.0,
+            error=str(exc),
+        )
+        return {
+            "stage_2_responses": [error_resp],
+            "errors": [{
+                "member_id": member["member_id"],
+                "stage": "stage_2",
+                "message": f"fallback_exhausted:{exc}",
+                "timestamp": ""
+            }]
         }
 
     except Exception as exc:

@@ -9,14 +9,13 @@ export default function ProvidersSettingsPage() {
   const [configured, setConfigured] = useState<Record<Provider, ProviderKeyResponse | null>>({
     openrouter: null,
     nvidia_nim: null,
-    github_models: null,
   });
   const [loading, setLoading] = useState(true);
 
   async function fetchStatus() {
     try {
       const data = await providersApi.getConfiguredProviders();
-      const status: Record<Provider, ProviderKeyResponse | null> = { openrouter: null, nvidia_nim: null, github_models: null };
+      const status: Record<Provider, ProviderKeyResponse | null> = { openrouter: null, nvidia_nim: null };
       data.forEach((p) => { status[p.provider] = p; });
       setConfigured(status);
     } catch {
@@ -42,7 +41,7 @@ export default function ProvidersSettingsPage() {
     <div className="animate-fade-in">
       <div className="mb-8">
         <p className="text-muted text-sm m-0">
-          Synod connects exclusively to these three inference providers. Your keys are encrypted at rest and never shared.
+          Synod connects exclusively to these inference providers. Your keys are encrypted at rest and never shared.
         </p>
       </div>
 
@@ -61,15 +60,6 @@ export default function ProvidersSettingsPage() {
           description="Enterprise-grade NVIDIA hosted models with high throughput."
           providerKey={configured.nvidia_nim}
           onUpdate={fetchStatus}
-        />
-
-        <ProviderKeyCard
-          provider="github_models"
-          title="GitHub Models"
-          description="Access to models hosted on GitHub's inference infrastructure."
-          providerKey={configured.github_models}
-          onUpdate={fetchStatus}
-          retirementWarning="GitHub Models is being retired on July 30, 2026. After this date, this provider will cease to function."
         />
       </div>
     </div>

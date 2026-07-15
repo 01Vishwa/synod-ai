@@ -27,7 +27,6 @@ interface SelectedMember {
 const PROVIDERS: { value: Provider; label: string; desc: string }[] = [
   { value: 'openrouter',    label: 'OpenRouter',    desc: 'Access hundreds of models via one key' },
   { value: 'nvidia_nim',   label: 'NVIDIA NIM',    desc: 'Enterprise-grade NVIDIA hosted models' },
-  { value: 'github_models', label: 'GitHub Models', desc: '⚠ Retiring July 30, 2026' },
 ];
 
 function generateMemberId() {
@@ -190,7 +189,7 @@ function MemberCard({
               !member.provider ? 'Select provider first' :
               isLoading ? 'Loading models...' :
               error ? (error.includes('No API key') 
-                ? `Connect ${member.provider === 'github_models' ? 'GitHub Models' : member.provider === 'nvidia_nim' ? 'NVIDIA NIM' : 'OpenRouter'} in Settings` 
+                ? `Connect ${member.provider === 'nvidia_nim' ? 'NVIDIA NIM' : 'OpenRouter'} in Settings` 
                 : 'Could not load models') :
               providerModels.length === 0 ? 'No models available' :
               'Select model…'
@@ -255,23 +254,19 @@ export default function NewSessionPage() {
   const [models, setModels] = useState<Record<Provider, ModelInfo[]>>({
     openrouter: [],
     nvidia_nim: [],
-    github_models: [],
   });
   const [loadingModels, setLoadingModels] = useState<Record<Provider, boolean>>({
     openrouter: false,
     nvidia_nim: false,
-    github_models: false,
   });
   const [modelErrors, setModelErrors] = useState<Record<Provider, string | null>>({
     openrouter: null,
     nvidia_nim: null,
-    github_models: null,
   });
 
   const fetchAttempted = useRef<Record<Provider, boolean>>({
     openrouter: false,
     nvidia_nim: false,
-    github_models: false,
   });
 
   const fetchModels = useCallback(async (provider: Provider) => {
@@ -291,7 +286,7 @@ export default function NewSessionPage() {
       }));
       
       if (msg.includes('No API key')) {
-        const providerName = provider === 'github_models' ? 'GitHub Models' : provider === 'nvidia_nim' ? 'NVIDIA NIM' : 'OpenRouter';
+        const providerName = provider === 'nvidia_nim' ? 'NVIDIA NIM' : 'OpenRouter';
         toast(`Connect ${providerName} in Settings to view models.`, 'error');
       } else {
         toast(`Failed to load models for ${provider}`, 'error');

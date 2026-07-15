@@ -48,6 +48,13 @@ def should_research(state: OrchestratorState) -> str:
 async def setup_stage_1(state: OrchestratorState, config: RunnableConfig) -> dict[str, Any]:
     """Saves the checkpoint indicating stage_1 has started."""
     deps = get_deps(config)
+    logger.info(
+        "STAGE_1_SETUP_ENTERED",
+        extra={
+            "session_id": state.get("session_id", ""),
+            "user_id": state.get("user_id", "<missing>"),
+        },
+    )
     await deps.repository.save_checkpoint(state) # type: ignore
     return {"stage": "stage_1"}
 
@@ -56,14 +63,20 @@ def route_stage_1(state: OrchestratorState) -> list[Any]:
     """Fan-out to all council members for Stage 1."""
     # We use LangGraph's Send API to execute stage_1_node in parallel
     from langgraph.constants import Send
-    
+
+    # user_id is now a declared field in CouncilState — safe to access directly.
+    # Never use .get("user_id", "") — an empty default silently breaks persistence.
+    session_id: str = state["session_id"]
+    user_id: str = state["user_id"]
+
     tasks = []
     for member in state["members"]:
         task: Stage1Task = {
             "member": member,
             "user_query": state["user_query"],
             "research_digest": state.get("research_digest"),
-            "user_id": state.get("user_id", ""),  # type: ignore
+            "user_id": user_id,
+            "session_id": session_id,
         }
         tasks.append(Send("stage_1_draft", task))
     return tasks
@@ -75,15 +88,22 @@ async def setup_stage_2(state: OrchestratorState, config: RunnableConfig) -> dic
     Builds the anonymisation map and saves the checkpoint.
     """
     deps = get_deps(config)
-    
+    logger.info(
+        "STAGE_2_SETUP_ENTERED",
+        extra={
+            "session_id": state.get("session_id", ""),
+            "user_id": state.get("user_id", "<missing>"),
+        },
+    )
+
     # Anonymise mapping
     anon_map = build_anonymization_map(state["members"])
-    
+
     updates = {
         "stage": "stage_2",
         "anonymization_map": anon_map,
     }
-    
+
     # Apply local updates for the checkpoint save
     updated_state = {**state, **updates}
     await deps.repository.save_checkpoint(updated_state) # type: ignore
@@ -93,10 +113,13 @@ async def setup_stage_2(state: OrchestratorState, config: RunnableConfig) -> dic
 def route_stage_2(state: OrchestratorState) -> list[Any]:
     """Fan-out to all council members for Stage 2 (Peer Review)."""
     from langgraph.constants import Send
-    
+
+    # user_id is a declared field — access directly, never use empty-string default.
+    user_id: str = state["user_id"]
+
     anon_map = state["anonymization_map"]
     stage_1_responses = state["stage_1_responses"]
-    
+
     tasks = []
     for member in state["members"]:
         # Each member gets a uniquely shuffled, anonymised bundle of Stage 1 responses
@@ -105,12 +128,12 @@ def route_stage_2(state: OrchestratorState) -> list[Any]:
             anonymization_map=anon_map,
             reviewer_member_id=member["member_id"],
         )
-        
+
         task: Stage2Task = {
             "member": member,
             "user_query": state["user_query"],
             "shuffled_responses": shuffled,
-            "user_id": state.get("user_id", ""),  # type: ignore
+            "user_id": user_id,
         }
         tasks.append(Send("stage_2_review", task))
     return tasks
@@ -122,28 +145,35 @@ async def setup_stage_3(state: OrchestratorState, config: RunnableConfig) -> dic
     Computes Borda count rankings, elects Chairman, and saves checkpoint.
     """
     deps = get_deps(config)
-    
+    logger.info(
+        "STAGE_3_SETUP_ENTERED",
+        extra={
+            "session_id": state.get("session_id", ""),
+            "user_id": state.get("user_id", "<missing>"),
+        },
+    )
+
     member_ids = [m["member_id"] for m in state["members"]]
-    
+
     # Compute aggregate scores
     scores = borda_count(
         ballots=state["rankings"],
         member_ids=member_ids,
         anon_map=state["anonymization_map"],
     )
-    
+
     # Elect chairman
     chairman_id = elect_chairman(
         aggregate_scores=scores,
         pinned_member_id=state.get("chairman_member_id"),
     )
-    
+
     updates = {
         "stage": "stage_3",
         "aggregate_scores": scores,
         "chairman_member_id": chairman_id,
     }
-    
+
     updated_state = {**state, **updates}
     await deps.repository.save_checkpoint(updated_state) # type: ignore
     return updates

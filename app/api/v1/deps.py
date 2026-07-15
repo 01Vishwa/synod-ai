@@ -20,7 +20,7 @@ import logging
 from typing import Annotated, Optional
 
 import jwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Query, status
 from jwt import PyJWKClient
 from jwt.exceptions import (
     ExpiredSignatureError,
@@ -251,7 +251,7 @@ async def get_current_user_id(
         )
 
 
-# ── Convenience type aliases for route signatures ─────────────────────────
+# ── Convenience type aliases for route signatures ─────────────────────────────────────
 
 CurrentUserId = Annotated[str, Depends(get_current_user_id)]
 SessionRepo = Annotated[SessionRepository, Depends(get_session)]
@@ -259,3 +259,90 @@ Tracer = Annotated[TracerPort, Depends(get_tracer)]
 Vault = Annotated[KeyVault, Depends(get_key_vault)]
 DbSession = Annotated[AsyncSession, Depends(get_db_with_rls)]
 NotionSvc = Annotated[NotionService, Depends(get_notion_service)]
+
+
+async def get_current_user_id_sse(
+    token: Annotated[Optional[str], Query()] = None,
+    authorization: Annotated[Optional[str], Header()] = None,
+) -> str:
+    """
+    SSE-compatible authentication dependency.
+
+    The browser's native EventSource API cannot attach custom headers, so the
+    JWT must be passed as ``?token=<jwt>`` in the query string for SSE endpoints.
+    This dependency checks the query parameter first, then falls back to the
+    standard ``Authorization: Bearer <token>`` header for non-SSE callers.
+
+    Security: the token is still fully verified via JWKS (same as the header path).
+    The query-param approach is the standard industry workaround for EventSource.
+
+    Raises:
+        HTTPException 401: if no token is provided via either mechanism, or if
+            token validation fails.
+    """
+    # Resolve the raw JWT string from whichever source is present.
+    if token:
+        raw_token = token.strip()
+    elif authorization and authorization.startswith("Bearer "):
+        raw_token = authorization.removeprefix("Bearer ").strip()
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "missing_token",
+                "message": "Authentication is required (pass token via Authorization header or ?token= query param).",
+            },
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Verify the token using the same JWKS path as get_current_user_id.
+    try:
+        unverified_header = jwt.get_unverified_header(raw_token)
+        logger.debug(
+            "SSE JWT verification attempt",
+            extra={
+                "algorithm": unverified_header.get("alg"),
+                "kid": unverified_header.get("kid"),
+            },
+        )
+    except Exception:
+        pass
+
+    try:
+        signing_key = _jwks_client.get_signing_key_from_jwt(raw_token)
+        payload = jwt.decode(
+            raw_token,
+            signing_key.key,
+            algorithms=["ES256"],
+            audience="authenticated",
+            issuer=_SUPABASE_ISSUER,
+            options={"require": ["exp", "iat", "sub"]},
+        )
+        user_id: str = payload.get("sub", "")
+        if not user_id:
+            raise InvalidTokenError("JWT 'sub' claim is missing.")
+        return user_id
+
+    except ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "token_expired", "message": "Your session has expired."},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except (InvalidAudienceError, InvalidIssuerError, InvalidTokenError) as exc:
+        logger.warning("SSE JWT verification failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "invalid_token", "message": "Invalid authentication token."},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except Exception as exc:
+        logger.error("Unexpected SSE JWT verification error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "invalid_token", "message": "Invalid authentication token."},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+CurrentUserIdSse = Annotated[str, Depends(get_current_user_id_sse)]

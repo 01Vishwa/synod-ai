@@ -11,7 +11,7 @@ from typing import Any
 
 from langchain_core.runnables.config import RunnableConfig
 
-from app.adapters.llm_providers.factory import ProviderAdapterFactory
+from app.core.exceptions import AuthenticationError, FallbackExhaustedError
 from app.domain.council_state import CouncilState
 from app.domain.ports.provider_adapter import ChatMessage
 from app.orchestration.context import get_deps
@@ -83,15 +83,18 @@ async def stage_3_node(state: CouncilState, config: RunnableConfig) -> dict[str,
 
     try:
         api_key = await fetch_decrypted_key(deps, state.get("user_id", ""), member["provider"]) # type: ignore
-        adapter = ProviderAdapterFactory.create(member["provider"])
-        
-        # Final synthesis might be long
-        response = await adapter.chat(
+
+        # Use the LLMRouter (retry + circuit breaker) instead of calling
+        # the adapter directly.  Higher token ceiling for the final synthesis.
+        response = await deps.llm_router.chat(
             messages=messages,
             model_id=member["model_id"],
+            provider=member["provider"],
             api_key=api_key,
+            user_id=state.get("user_id", ""),  # type: ignore
             temperature=0.5,
             max_tokens=4000,
+            timeout_s=90,  # Chairman synthesis can be longer
         )
 
         await deps.tracer.end_span(
@@ -109,6 +112,40 @@ async def stage_3_node(state: CouncilState, config: RunnableConfig) -> dict[str,
             # so we'll append a dummy MemberResponse to stage_2 just for cost tracking,
             # or rely on the LangSmith tracer for total cost.
             # We'll just update the DB model's total_cost directly in the repo checkpoint.
+        }
+
+    except AuthenticationError as exc:
+        logger.error(
+            "Stage 3: authentication failed for chairman %s provider=%s: %s",
+            member["member_id"],
+            member["provider"],
+            exc,
+        )
+        await deps.tracer.end_span(span, error=exc)
+        return {
+            "errors": state.get("errors", []) + [{
+                "member_id": member["member_id"],
+                "stage": "stage_3",
+                "message": f"authentication_error:{exc}",
+                "timestamp": ""
+            }]
+        }
+
+    except FallbackExhaustedError as exc:
+        logger.error(
+            "Stage 3: all retry attempts exhausted for chairman %s provider=%s chain=%s",
+            member["member_id"],
+            member["provider"],
+            exc.chain,
+        )
+        await deps.tracer.end_span(span, error=exc)
+        return {
+            "errors": state.get("errors", []) + [{
+                "member_id": member["member_id"],
+                "stage": "stage_3",
+                "message": f"fallback_exhausted:{exc}",
+                "timestamp": ""
+            }]
         }
 
     except Exception as exc:

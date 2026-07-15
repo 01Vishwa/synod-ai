@@ -64,7 +64,7 @@ async def notion_archivist_node(
             logger.warning(f"notion_archivist_node: {msg}")
             return {"archive_status": "failed", "archive_error": msg}
 
-        access_token = deps.vault.decrypt(model.encrypted_key)
+        access_token = deps.vault.decrypt(model.ciphertext_b64)
         
         meta = model.connection_meta or {}
         parent_page_id = meta.get("parent_page_id")

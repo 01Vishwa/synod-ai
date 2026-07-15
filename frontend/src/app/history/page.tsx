@@ -119,16 +119,28 @@ export default function HistoryPage() {
               borderTop: '1px solid var(--color-border)',
               marginTop: 'var(--space-8)'
             }}>
+              {/* Illustration */}
+              <svg
+                width="40"
+                height="40"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ color: 'var(--color-text-subtle)', margin: '0 auto var(--space-4)' }}
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M8 12h8M12 8v8" />
+              </svg>
               <p style={{ fontWeight: 600, color: 'var(--color-text)', margin: '0 0 var(--space-2)' }}>
-                NO SESSIONS YET
+                No Sessions Yet
               </p>
-              <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', margin: '0 0 var(--space-6)' }}>
-                Your council sessions will appear here after you start<br/>
-                your first council deliberation.
+              <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)', margin: 0, maxWidth: '320px', marginInline: 'auto' }}>
+                Your council sessions will appear here once you start your first deliberation.
+                Use the <strong>New Session</strong> button in the top-right to get started.
               </p>
-              <Link href="/">
-                <button className="btn-primary">New Session</button>
-              </Link>
             </div>
           )}
 

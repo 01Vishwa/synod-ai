@@ -21,8 +21,8 @@ Pattern: Decorator, Adapter (Hexagonal driven port).
 from __future__ import annotations
 
 import logging
-import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from app.core.config import settings
@@ -164,7 +164,7 @@ class LangSmithTracer(TracerPort):
                     "latency_ms": latency_ms,
                     "cost_usd": cost_usd,
                 },
-                end_time=time.time(),
+                end_time=datetime.now(timezone.utc),
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to end LangSmith span: %s", exc)
@@ -184,10 +184,10 @@ class LangSmithTracer(TracerPort):
                 run_id=context.trace_id,
                 outputs={"summary": str(output)[:4000] if output else None},
                 error=str(error) if error else None,
-                end_time=time.time(),
+                end_time=datetime.now(timezone.utc),
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to end LangSmith trace: %s", exc)
+            logger.warning("TRACE_FINALIZATION_FAILED: %s", exc)
 
     def get_trace_url(self, trace_id: str) -> Optional[str]:
         """Return a deep-link into the LangSmith project for this trace."""
