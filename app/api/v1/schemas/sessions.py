@@ -26,7 +26,7 @@ class CouncilMemberConfigSchema(BaseModel):
         ),
         pattern=r"^member_[a-z0-9]+$",
     )
-    provider: Literal["openrouter", "nvidia_nim", "github_models"] = Field(
+    provider: Literal["openrouter", "nvidia_nim"] = Field(
         description="LLM provider for this seat"
     )
     model_id: str = Field(
@@ -40,6 +40,10 @@ class CouncilMemberConfigSchema(BaseModel):
         max_length=64,
     )
     role: Literal["member", "chairman"] = "member"
+    api_key: Optional[str] = Field(
+        default=None,
+        description="Optional API key for the provider. If omitted, falls back to server-side configuration."
+    )
 
     model_config = ConfigDict(
         json_schema_extra={

@@ -86,9 +86,8 @@ function StatusLabel({ response }: { response?: MemberResponse }) {
 
 function ProviderBadge({ provider }: { provider: string }) {
   const labels: Record<string, string> = {
-    openrouter:    'OR',
-    nvidia_nim:    'NIM',
-    github_models: 'GH',
+    openrouter: 'OR',
+    nvidia_nim: 'NIM',
   };
   return (
     <span

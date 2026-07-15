@@ -16,7 +16,7 @@ from app.core.exceptions import DomainValidationError
 from app.domain.ports.provider_adapter import ProviderAdapter
 
 # Valid provider slugs — this is the UI allow-list the PRD mandates.
-ProviderSlug = Literal["openrouter", "nvidia_nim", "github_models"]
+ProviderSlug = Literal["openrouter", "nvidia_nim"]
 
 
 class ProviderAdapterFactory:
@@ -64,18 +64,14 @@ class ProviderAdapterFactory:
                 from app.adapters.llm_providers.nvidia_nim_adapter import NvidiaNimAdapter
                 return NvidiaNimAdapter()
 
-            case "github_models":
-                from app.adapters.llm_providers.github_models_adapter import GitHubModelsAdapter
-                return GitHubModelsAdapter()
-
             case _:
                 raise DomainValidationError(
                     message=f"Unknown LLM provider: '{provider}'. "
-                            "Allowed values: openrouter, nvidia_nim, github_models.",
-                    details={"provider": provider, "allowed": ["openrouter", "nvidia_nim", "github_models"]},
+                            "Allowed values: openrouter, nvidia_nim.",
+                    details={"provider": provider, "allowed": ["openrouter", "nvidia_nim"]},
                 )
 
     @classmethod
     def supported_providers(cls) -> list[str]:
         """Return the current allow-list of provider slugs."""
-        return ["openrouter", "nvidia_nim", "github_models"]
+        return ["openrouter", "nvidia_nim"]

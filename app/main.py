@@ -21,6 +21,7 @@ from app.api.v1.api import api_router
 from app.api.v1.routers.health import router as health_router
 from app.core.config import settings
 from app.core.exceptions import setup_exception_handlers
+from app.core.llm_router import LLMRouter
 from app.core.logging import LoggingMiddleware, setup_logging
 
 logger = logging.getLogger("synod.bootstrap")
@@ -45,6 +46,20 @@ async def lifespan(app: FastAPI):
     # In production, this should be handled by Alembic migrations.
     if settings.is_development:
         await create_all_tables()
+
+    # Instantiate LLMRouter as a process singleton.
+    # max_attempts = retries + 1 (e.g. COUNCIL_MEMBER_MAX_RETRIES=2 → 3 total attempts)
+    app.state.llm_router = LLMRouter(
+        max_attempts=settings.COUNCIL_MEMBER_MAX_RETRIES + 1
+    )
+    logger.info(
+        "LLMRouter initialised (max_attempts=%d).",
+        settings.COUNCIL_MEMBER_MAX_RETRIES + 1,
+    )
+    # Register with the runner module so background tasks share this instance
+    from app.orchestration.runner import set_llm_router_singleton
+    set_llm_router_singleton(app.state.llm_router)
+
 
     yield
 

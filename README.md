@@ -1,5 +1,4 @@
-# Synod
-*Where Models Convene, Truth Concludes.*
+# Synod-Ai - *Where Models Convene, Truth Concludes.*
 
 ## Project Description
 Synod is a supervisor-orchestrated council of independent AI models that debate, critique, and rank each other's answers — anonymously — before a designated Chairman agent synthesizes the strongest, most defensible response to your question. Instead of blindly trusting a single LLM, Synod fans your query out to a diverse panel, enforces blind peer review, and yields a single evidence-grounded final answer.
@@ -13,7 +12,7 @@ Synod is a supervisor-orchestrated council of independent AI models that debate,
 - **Full Observability:** Provide end-to-end tracing of all model latency, token counts, and cost via Langfuse.
 
 ## Key Features
-- **Multi-Model Deliberation:** Send one prompt, receive N parallel opinions.
+- **Multi-Model Deliberation:** Send one prompt, receive N*N parallel opinions.
 - **Anonymized Ranking:** Models rank each other purely on merit, not model name.
 - **Chairman Synthesis:** A designated top-performing model synthesizes a final conclusion.
 - **Strict Role-Based Architecture:** Uses LangGraph's Supervisor pattern; models never talk directly to one another.
@@ -21,10 +20,7 @@ Synod is a supervisor-orchestrated council of independent AI models that debate,
 - **Zero Platform Lock-In:** Configurable API Keys for LLM inference (OpenRouter, NVIDIA NIM, GitHub Models) and Research (Tavily, Anakin).
 
 ## Current Status
-**In Development (Beta Stage).** The backend orchestration (LangGraph, FastAPI) and core domain (ports/adapters) are implemented. Session polling, RLS with Supabase JWTs, and secure KeyVault storage are complete. The frontend (Next.js) session dashboards, history screens, and settings panels are implemented and functionally consuming SSE deltas. 
-
-> [!WARNING]  
-> GitHub Models integration faces an imminent upstream retirement (July 30, 2026). Check the Roadmap for migration strategies.
+**In Development** The backend orchestration (LangGraph, FastAPI) and core domain (ports/adapters) are implemented. Session polling, RLS with Supabase JWTs, and secure KeyVault storage are complete. The frontend (Next.js) session dashboards, history screens, and settings panels are implemented and functionally consuming SSE deltas. 
 
 ## Architecture Overview
 Synod utilizes **Hexagonal Architecture (Ports and Adapters)** for the backend:
@@ -61,7 +57,7 @@ synod-ai/
 - **API Keys:** Provide your own OpenRouter/NVIDIA NIM and Tavily keys for full functionality.
 
 ## Installation Guide
-For a full installation guide, please refer to [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md).
+For a full installation guide, please refer to [INSTALLATION_GUIDE.md](docs/INSTALLATION_GUIDE.md).
 
 ## Running the Project
 ### Development Mode
@@ -83,10 +79,6 @@ Synod uses PostgreSQL. Migrations are managed via Alembic (`alembic upgrade head
 ## Scripts
 See `package.json` and `pyproject.toml` for standard npm and Python scripts (e.g. `npm run dev`, `npm run lint`).
 
-## Screenshots Placeholder
-![Session History Dashboard (Placeholder)](#)
-![Active Deliberation (Placeholder)](#)
-
 ## Deployment Guide
 1. Host the Next.js frontend on Vercel or your preferred Node provider.
 2. Host the FastAPI backend on a capable container service (e.g. AWS Fargate, Render).
@@ -96,22 +88,3 @@ See `package.json` and `pyproject.toml` for standard npm and Python scripts (e.g
 - Single-operator sessions only (no real-time multi-user editing).
 - Text-only queries (no multimodal support in v1).
 - GitHub Models integration is slated for deprecation by Microsoft/GitHub.
-
-## Current Progress & Roadmap
-See [CURRENT_PROGRESS.md](CURRENT_PROGRESS.md) and [PROJECT_REPORT.md](PROJECT_REPORT.md) for deeper insights.
-- **Upcoming:** Swap GitHub Models for Azure AI Foundry. Expand testing suite (`tests/` directory is currently sparse). 
-
-## Contributing Guidelines & Coding Standards
-- Enforce strict separation of concerns (no HTTP imports in `domain/`).
-- Commit all UI changes using the strict Black & White design system (no colors allowed).
-- All PRs must pass unit tests covering graph state transitions.
-
-## License
-TBD
-
-## Acknowledgements
-- LangGraph for state orchestration.
-- Vercel's @json-render for dynamic UI data.
-
-## Contact Information
-(placeholder)

@@ -11,7 +11,7 @@ from typing import Any, TypedDict
 
 from langchain_core.runnables.config import RunnableConfig
 
-from app.adapters.llm_providers.factory import ProviderAdapterFactory
+from app.core.exceptions import AuthenticationError, FallbackExhaustedError
 from app.domain.council_state import CouncilMemberConfig, MemberResponse, ResearchDigest
 from app.domain.ports.provider_adapter import ChatMessage
 from app.orchestration.context import get_deps
@@ -26,6 +26,7 @@ class Stage1Task(TypedDict):
     user_query: str
     research_digest: ResearchDigest | None
     user_id: str
+    session_id: str
 
 
 def _build_prompt(query: str, research: ResearchDigest | None) -> str:
@@ -65,15 +66,37 @@ async def stage_1_node(task: Stage1Task, config: RunnableConfig) -> dict[str, An
 
     try:
         api_key = await fetch_decrypted_key(deps, task["user_id"], member["provider"])
-        adapter = ProviderAdapterFactory.create(member["provider"])
-        
-        # Max tokens capped high enough for a full draft, temperature moderate
-        response = await adapter.chat(
+
+        logger.info(
+            "MODEL_REQUEST_START",
+            extra={
+                "session_id": task.get("session_id", ""),
+                "member_id": member["member_id"],
+                "provider": member["provider"],
+                "model": member["model_id"],
+            },
+        )
+
+        # Use the LLMRouter (retry + circuit breaker) instead of calling
+        # the adapter directly.
+        response = await deps.llm_router.chat(
             messages=messages,
             model_id=member["model_id"],
+            provider=member["provider"],
             api_key=api_key,
+            user_id=task["user_id"],
             temperature=0.7,
             max_tokens=2000,
+            timeout_s=60,
+        )
+
+        logger.info(
+            "MODEL_REQUEST_SUCCESS",
+            extra={
+                "session_id": task.get("session_id", ""),
+                "member_id": member["member_id"],
+                "provider": member["provider"],
+            },
         )
 
         member_resp = MemberResponse(
@@ -98,8 +121,92 @@ async def stage_1_node(task: Stage1Task, config: RunnableConfig) -> dict[str, An
         )
         return {"stage_1_responses": [member_resp]}
 
+    except AuthenticationError as exc:
+        # Key was rejected — log prominently so the user knows to update settings.
+        logger.error(
+            "Stage 1: authentication failed for %s provider=%s: %s",
+            member["member_id"],
+            member["provider"],
+            exc,
+        )
+        logger.exception(
+            "MODEL_REQUEST_FAILED",
+            extra={
+                "session_id": task.get("session_id", ""),
+                "member_id": member["member_id"],
+                "provider": member["provider"],
+            },
+        )
+        await deps.tracer.end_span(span, error=exc)
+        error_resp = MemberResponse(
+            member_id=member["member_id"],
+            stage="stage_1",
+            content="",
+            anonymized_label=None,
+            latency_ms=0,
+            tokens_in=0,
+            tokens_out=0,
+            cost_usd=0.0,
+            error=f"Authentication failed for provider '{member['provider']}'. "
+                  "Please update your API key in Settings.",
+        )
+        return {
+            "stage_1_responses": [error_resp],
+            "errors": [{
+                "member_id": member["member_id"],
+                "stage": "stage_1",
+                "message": f"authentication_error:{exc}",
+                "timestamp": ""
+            }]
+        }
+
+    except FallbackExhaustedError as exc:
+        logger.error(
+            "Stage 1: all retry attempts exhausted for %s provider=%s chain=%s",
+            member["member_id"],
+            member["provider"],
+            exc.chain,
+        )
+        logger.exception(
+            "MODEL_REQUEST_FAILED",
+            extra={
+                "session_id": task.get("session_id", ""),
+                "member_id": member["member_id"],
+                "provider": member["provider"],
+            },
+        )
+        await deps.tracer.end_span(span, error=exc)
+        error_resp = MemberResponse(
+            member_id=member["member_id"],
+            stage="stage_1",
+            content="",
+            anonymized_label=None,
+            latency_ms=0,
+            tokens_in=0,
+            tokens_out=0,
+            cost_usd=0.0,
+            error=str(exc),
+        )
+        return {
+            "stage_1_responses": [error_resp],
+            "errors": [{
+                "member_id": member["member_id"],
+                "stage": "stage_1",
+                "message": f"fallback_exhausted:{exc}",
+                "timestamp": ""
+            }]
+        }
+
     except Exception as exc:
         logger.error("Stage 1 failed for %s: %s", member["member_id"], exc)
+        logger.exception(
+            "MODEL_REQUEST_FAILED",
+            extra={
+                "session_id": task.get("session_id", ""),
+                "member_id": member["member_id"],
+                "provider": member["provider"],
+            },
+        )
         await deps.tracer.end_span(span, error=exc)
         
         # We record the error in the response envelope so the rest of the council can proceed

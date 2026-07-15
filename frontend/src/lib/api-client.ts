@@ -8,7 +8,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
-export type Provider = 'openrouter' | 'nvidia_nim' | 'github_models';
+export type Provider = 'openrouter' | 'nvidia_nim';
 export type ResearchProvider = 'tavily' | 'anakin';
 export type Stage = 'stage_1' | 'stage_2' | 'stage_3' | 'archiving' | 'done' | 'error';
 
@@ -196,8 +196,17 @@ export const sessionsApi = {
   list: () =>
     apiFetch<SessionListResponse>('/sessions'),
 
-  getStreamUrl: (sessionId: string) =>
-    `${API_BASE}/api/v1/sessions/${sessionId}/stream`,
+  getStreamUrl: async (sessionId: string): Promise<string> => {
+    // EventSource (browser SSE) cannot send Authorization headers, so we
+    // pass the JWT as a query parameter instead. The backend SSE endpoint
+    // accepts ?token=<jwt> via the CurrentUserIdSse dependency.
+    await supabase.auth.getUser(); // refresh token if expired
+    const { data: { session } } = await supabase.auth.getSession();
+    const base = `${API_BASE}/api/v1/sessions/${sessionId}/stream`;
+    return session?.access_token
+      ? `${base}?token=${encodeURIComponent(session.access_token)}`
+      : base;
+  },
 };
 
 // ─── Providers ────────────────────────────────────────────────────────────

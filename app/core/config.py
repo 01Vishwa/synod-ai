@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     LANGSMITH_PROJECT: str = "synod-ai"
     LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
 
+    # ── Langfuse observability (optional — no-op if keys are absent) ─────────
+    LANGFUSE_TRACING: bool = False
+    LANGFUSE_PUBLIC_KEY: Optional[str] = None
+    LANGFUSE_SECRET_KEY: Optional[str] = None
+    LANGFUSE_HOST: str = "https://cloud.langfuse.com"
+
     # ── Application security ────────────────────────────────────────────────
     # Fernet-compatible 32-byte URL-safe base64 key for provider-key encryption
     CREDENTIAL_ENCRYPTION_KEY: str = ""
@@ -63,6 +69,13 @@ class Settings(BaseSettings):
     # ── Per-member request timeout ───────────────────────────────────────────
     COUNCIL_MEMBER_TIMEOUT_SECONDS: int = 60
     COUNCIL_MEMBER_MAX_RETRIES: int = 2
+    GRAPH_TIMEOUT_SECONDS: int = 300
+
+    # ── SSE streaming ────────────────────────────────────────────────────────
+    SSE_POLL_INTERVAL_SECONDS: float = 0.5    # how often event_generator polls the DB
+    SSE_MAX_DURATION_SECONDS: float = 300.0   # hard wall-clock cap (5 minutes)
+    SSE_PING_INTERVAL_SECONDS: float = 15.0   # sse_starlette keepalive ping cadence
+    SSE_SEND_TIMEOUT_SECONDS: float = 300.0   # sse_starlette per-send timeout
 
     # ── Database pool settings ───────────────────────────────────────────────
     DB_POOL_SIZE: int = 10

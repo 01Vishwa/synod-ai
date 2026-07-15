@@ -123,11 +123,16 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
 
   if (!state) return null;
 
-  // Determine which members are still waiting on Stage 1 responses
+  // Determine which members are still waiting on Stage 1 responses.
+  // Guard against members being undefined: this can happen transiently if the
+  // background graph crashes before the initial state is fully persisted.
+  const members = state.members ?? [];
   const streamingMemberIds = new Set<string>();
-  if (stage === 'stage_1') {
-    state.members.forEach((m) => {
-      const hasResponse = state.stage_1_responses.some((r) => r.member_id === m.member_id);
+  // Only mark members as streaming when the session is actively running stage_1.
+  // On terminal error/timeout, clear all streaming indicators immediately.
+  if (stage === 'stage_1' && status === 'streaming') {
+    members.forEach((m) => {
+      const hasResponse = (state.stage_1_responses ?? []).some((r) => r.member_id === m.member_id);
       if (!hasResponse) streamingMemberIds.add(m.member_id);
     });
   }
@@ -160,6 +165,21 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
       </div>
 
       <StageStrip currentStage={stage} viewStage={viewStage} onViewChange={setViewStage} />
+
+      {/* Structural Error Banner — shown when the backend graph crashed before
+          populating members (i.e. the state blob arrived incomplete). */}
+      {!state.members && (
+        <div
+          role="alert"
+          className="col-span-12 border-2 border-black rounded-md p-6 mb-8"
+        >
+          <h3 className="text-xl font-display font-bold mb-2">Session failed to start</h3>
+          <p className="text-muted m-0">
+            The council session could not be initialised. The server encountered
+            an error before any members were assigned. Please create a new session.
+          </p>
+        </div>
+      )}
 
       {/* Global Error Banner */}
       {status === 'error' && state.stage === 'error' && (
@@ -208,8 +228,8 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
           <section aria-labelledby="stage1-heading">
             <h2 id="stage1-heading" className="sr-only">First Opinions</h2>
             <MemberTabs
-              members={state.members}
-              responses={state.stage_1_responses}
+              members={members}
+              responses={state.stage_1_responses ?? []}
               streamingMemberIds={streamingMemberIds}
             />
           </section>
@@ -218,10 +238,10 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
         {currentView === 'stage_2' && (
           <section aria-labelledby="stage2-heading">
             <RankingTable
-              rankings={state.rankings}
-              aggregateScores={state.aggregate_scores}
-              members={state.members}
-              anonymizationMap={state.anonymization_map}
+              rankings={state.rankings ?? []}
+              aggregateScores={state.aggregate_scores ?? {}}
+              members={members}
+              anonymizationMap={state.anonymization_map ?? {}}
             />
           </section>
         )}
@@ -230,11 +250,11 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
           <section aria-labelledby="stage3-heading">
             <ChairmanReport
               reportMd={state.final_report_md ?? ''}
-              citations={state.citations}
-              members={state.members}
-              stage1Responses={state.stage_1_responses}
-              aggregateScores={state.aggregate_scores}
-              chairmanMemberId={state.chairman_member_id}
+              citations={state.citations ?? []}
+              members={members}
+              stage1Responses={state.stage_1_responses ?? []}
+              aggregateScores={state.aggregate_scores ?? {}}
+              chairmanMemberId={state.chairman_member_id ?? ''}
               notionPageUrl={state.notion_page_url}
               traceId={state.trace_id}
             />

@@ -12,7 +12,11 @@ export type SseEventType =
   | 'member_response'
   | 'dashboard_spec_update'
   | 'error'
-  | 'done';
+  | 'done'
+  // Structured terminal events emitted by the backend (Phase 3 fix)
+  | 'session.failed'
+  | 'session.completed'
+  | 'session.stream_timeout';
 
 export interface SseEvent<T = unknown> {
   type: SseEventType;
@@ -39,6 +43,19 @@ export interface SseSubscription {
  * // cleanup
  * sub.unsubscribe();
  */
+export interface SessionFailedPayload {
+  session_id: string;
+  stage: string;
+  state: string;
+  error: { code: string; message: string };
+}
+
+export interface SessionStreamTimeoutPayload {
+  session_id: string;
+  stage: string;
+  error: { code: string; message: string };
+}
+
 export interface SseOptions {
   onStateDelta?: (state: Partial<CouncilState>) => void;
   onStageTransition?: (stage: CouncilState['stage']) => void;
@@ -47,6 +64,12 @@ export interface SseOptions {
   onError?: (error: unknown) => void;
   onDone?: () => void;
   onConnectionError?: (err: Event) => void;
+  /** Emitted when stage=error is committed to DB and SSE stream terminates */
+  onSessionFailed?: (payload: SessionFailedPayload) => void;
+  /** Emitted when stage=done and session is complete */
+  onSessionCompleted?: () => void;
+  /** Emitted when SSE idle timeout is reached without a state change */
+  onStreamTimeout?: (payload: SessionStreamTimeoutPayload) => void;
 }
 
 export function subscribeToSession(
@@ -92,7 +115,7 @@ export function subscribeToSession(
       }
     };
 
-    // Named event handlers (FastAPI/LangGraph may emit named events)
+    // Named event handlers (sse_starlette emits named events)
     es.addEventListener('state_delta', (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data as string) as Partial<CouncilState>;
@@ -102,6 +125,28 @@ export function subscribeToSession(
 
     es.addEventListener('done', () => {
       options.onDone?.();
+      es?.close();
+    });
+
+    // ── Structured terminal events (Phase 3 backend fix) ─────────────────
+    es.addEventListener('session.failed', (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data as string) as SessionFailedPayload;
+        options.onSessionFailed?.(payload);
+      } catch { /* ignore */ }
+      es?.close();
+    });
+
+    es.addEventListener('session.completed', () => {
+      options.onSessionCompleted?.();
+      es?.close();
+    });
+
+    es.addEventListener('session.stream_timeout', (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data as string) as SessionStreamTimeoutPayload;
+        options.onStreamTimeout?.(payload);
+      } catch { /* ignore */ }
       es?.close();
     });
 
@@ -155,6 +200,20 @@ export function createSessionStream(
     onError: onError,
     onDone: () => {
       onUpdate(state);
+    },
+    // Structured terminal events — merge into state so the UI can react
+    onSessionFailed: (payload) => {
+      state = { ...state, stage: 'error' as CouncilState['stage'] };
+      onUpdate(state);
+      onError?.(new Error(payload.error.message));
+    },
+    onSessionCompleted: () => {
+      state = { ...state, stage: 'done' as CouncilState['stage'] };
+      onUpdate(state);
+    },
+    onStreamTimeout: (payload) => {
+      // Stream timed out — treat as an error so the UI stops spinning
+      onError?.(new Error(payload.error.message));
     },
   });
 

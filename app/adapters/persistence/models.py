@@ -36,6 +36,15 @@ from sqlalchemy.sql import func
 
 # ── PostgreSQL enum types (create_type=False — enum already exists in DB) ────
 
+# Matches the 'council_stage' enum in Supabase:
+#   stage_1 | stage_2 | stage_3 | archiving | done | error
+# Values must stay in sync with CouncilState.stage Literal in domain/council_state.py.
+_COUNCIL_STAGE_ENUM = Enum(
+    "stage_1", "stage_2", "stage_3", "archiving", "done", "error",
+    name="council_stage",
+    create_type=False,  # Do NOT emit CREATE TYPE — it already exists in Supabase
+)
+
 # Matches the 'provider_name' enum in Supabase: openrouter | nvidia_nim | github_models
 _PROVIDER_NAME_ENUM = Enum(
     "openrouter", "nvidia_nim", "github_models",
@@ -74,8 +83,10 @@ class CouncilSessionModel(Base):
     # Owning user (Supabase auth.users UUID)
     user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False, index=True)
 
-    # Denormalised stage for fast filtering ("stage_1", "done", "error", …)
-    stage: Mapped[str] = mapped_column(String(32), nullable=False, default="stage_1")
+    # Denormalised stage for fast filtering — maps to the 'council_stage' PG enum.
+    # Using _COUNCIL_STAGE_ENUM (create_type=False) tells asyncpg the correct
+    # OID so the wire type is 'council_stage', not VARCHAR.
+    stage: Mapped[str] = mapped_column(_COUNCIL_STAGE_ENUM, nullable=False, default="stage_1")
 
     # Full CouncilState snapshot (JSONB for rich querying / partial extraction)
     state: Mapped[dict] = mapped_column(JSONB, nullable=False)

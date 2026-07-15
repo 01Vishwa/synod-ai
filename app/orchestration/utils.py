@@ -33,4 +33,4 @@ async def fetch_decrypted_key(
             provider=provider,
         )
 
-    return deps.vault.decrypt(model.encrypted_key)
+    return deps.vault.decrypt(model.ciphertext_b64)

@@ -116,14 +116,27 @@ class RateLimitError(AppException):
 
 
 class ProviderError(AppException):
-    """Raised when an external LLM / research provider call fails."""
-    def __init__(self, message: str, provider: str, details: dict | None = None) -> None:
+    """
+    Raised when an external LLM / research provider call fails.
+
+    Attributes:
+        retryable: True for transient 5xx errors where a retry may succeed;
+                   False for deterministic failures (e.g. bad request, model not found).
+    """
+    def __init__(
+        self,
+        message: str,
+        provider: str,
+        details: dict | None = None,
+        retryable: bool = False,
+    ) -> None:
         super().__init__(
             message=message,
             error_code="provider_error",
             details={"provider": provider, **(details or {})},
             status_code=status.HTTP_502_BAD_GATEWAY,
         )
+        self.retryable = retryable
 
 
 class CircuitOpenError(AppException):
@@ -137,6 +150,62 @@ class CircuitOpenError(AppException):
         )
 
 
+class AuthenticationError(AppException):
+    """
+    Raised when a provider rejects the user's API key (HTTP 401 / missing_token).
+
+    This error is NEVER retried — a wrong key will not become correct on the
+    next attempt.  The LLMRouter catches this and marks the provider key as
+    invalid in-memory so subsequent hops in the same request skip that provider.
+    """
+    def __init__(self, message: str, provider: str, details: dict | None = None) -> None:
+        super().__init__(
+            message=message,
+            error_code="authentication_error",
+            details={"provider": provider, **(details or {})},
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+        self.provider = provider
+
+
+class UpstreamTimeoutError(AppException):
+    """
+    Raised when a provider call times out (connect or read timeout).
+
+    This is a transient, retryable error — the provider may be temporarily
+    overloaded.  The LLMRouter will retry up to the configured attempt limit
+    with exponential back-off before giving up.
+    """
+    def __init__(self, message: str, provider: str, details: dict | None = None) -> None:
+        super().__init__(
+            message=message,
+            error_code="upstream_timeout",
+            details={"provider": provider, **(details or {})},
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+        )
+        self.provider = provider
+
+
+class FallbackExhaustedError(AppException):
+    """
+    Raised by LLMRouter when all retry attempts for a single provider call
+    have been exhausted.
+
+    Attributes:
+        chain: Ordered list of attempt descriptors for audit / observability,
+               e.g. ["ATTEMPT_1:RateLimitError", "ATTEMPT_2:UpstreamTimeoutError"].
+    """
+    def __init__(self, message: str, provider: str, chain: list[str], details: dict | None = None) -> None:
+        super().__init__(
+            message=message,
+            error_code="fallback_exhausted",
+            details={"provider": provider, "chain": chain, **(details or {})},
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+        self.provider = provider
+        self.chain = chain
+
+
 class SessionError(AppException):
     """Raised for invalid council session state transitions."""
     def __init__(self, message: str, session_id: str | None = None) -> None:
@@ -145,6 +214,61 @@ class SessionError(AppException):
             error_code="session_error",
             details={"session_id": session_id} if session_id else {},
             status_code=status.HTTP_409_CONFLICT,
+        )
+
+
+class CouncilStateValidationError(AppException):
+    """
+    Raised when a required identity field (session_id / user_id) is missing,
+    empty, or not a valid UUID before a persistence operation is attempted.
+
+    This must surface before any SQL is executed so asyncpg never receives
+    an invalid UUID string.
+    """
+    def __init__(self, message: str, field: str | None = None, details: dict | None = None) -> None:
+        super().__init__(
+            message=message,
+            error_code="state_identity_invalid",
+            details={"field": field, **(details or {})} if field else (details or {}),
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+
+
+class StateIdentityMismatchError(AppException):
+    """
+    Raised when the authoritative user_id (from the JWT / background task arg)
+    does not match the user_id embedded in the council state dict.
+
+    The runner must never silently overwrite a conflicting non-empty user_id.
+    """
+    def __init__(
+        self,
+        session_id: str,
+        authoritative_user_id: str,
+        state_user_id: str,
+    ) -> None:
+        super().__init__(
+            message=(
+                f"State identity mismatch for session '{session_id}': "
+                f"authoritative user does not match state user."
+            ),
+            error_code="state_identity_mismatch",
+            details={"session_id": session_id},
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+
+
+class CheckpointSessionNotFoundError(AppException):
+    """
+    Raised by PostgresSessionRepository.save_checkpoint when the target session
+    row cannot be found using both session_id and user_id (tenant isolation).
+    """
+    def __init__(self, session_id: str, stage: str) -> None:
+        super().__init__(
+            message=f"Session '{session_id}' not found for checkpoint at stage '{stage}'.",
+            error_code="checkpoint_session_not_found",
+            details={"session_id": session_id, "stage": stage},
+            status_code=status.HTTP_404_NOT_FOUND,
         )
 
 
