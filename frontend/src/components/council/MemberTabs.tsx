@@ -198,13 +198,16 @@ export function MemberTabs({ members, responses, streamingMemberIds }: MemberTab
                   {res?.error && (
                     <div role="alert" className="border-2 border-black rounded-md p-6">
                       <div className="flex items-center gap-3 mb-2">
-                        <p className="font-bold">✕ Failed — excluded from ranking</p>
+                        <p className="font-bold">
+                          {classifyError(res.error) === 'auth'
+                            ? '✕ Authentication failed — excluded from this run.'
+                            : '✕ Failed — excluded from ranking'}
+                        </p>
                         <ErrorClassBadge errorClass={classifyError(res.error)} />
                       </div>
                       <p className="font-mono text-sm text-muted">{res.error}</p>
                       <p className="text-xs text-subtle mt-3 mb-0">
                         This member will be excluded from the Stage 2 peer review and aggregate ranking.
-                        The council will proceed with the remaining members.
                       </p>
                     </div>
                   )}
@@ -310,13 +313,16 @@ export function MemberTabs({ members, responses, streamingMemberIds }: MemberTab
           {activeResponse?.error && (
             <div role="alert" className="border-2 border-black rounded-md p-6">
               <div className="flex items-center gap-3 mb-2">
-                <p className="font-bold">✕ Failed — excluded from ranking</p>
+                <p className="font-bold">
+                  {classifyError(activeResponse.error) === 'auth'
+                    ? '✕ Authentication failed — excluded from this run.'
+                    : '✕ Failed — excluded from ranking'}
+                </p>
                 <ErrorClassBadge errorClass={classifyError(activeResponse.error)} />
               </div>
               <p className="font-mono text-sm text-muted">{activeResponse.error}</p>
               <p className="text-xs text-subtle mt-3 mb-0">
                 This member will be excluded from the Stage 2 peer review and aggregate ranking.
-                The council will proceed with the remaining members.
               </p>
             </div>
           )}

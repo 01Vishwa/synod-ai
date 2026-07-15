@@ -186,6 +186,7 @@ class SessionResponse(BaseModel):
     stage: str
     user_query: str
     member_count: int
+    members: list[CouncilMemberConfigSchema] = Field(default_factory=list)
     research_enabled: bool
     research_provider: Optional[str] = None
 
@@ -201,6 +202,15 @@ class SessionResponse(BaseModel):
     notion_page_url: Optional[str] = None
     trace_url: Optional[str] = None
     dashboard_spec: Optional[dict] = None
+
+    session_status: Optional[str] = None
+    stage_1_status: Optional[str] = None
+    stage_2_status: Optional[str] = None
+    stage_3_status: Optional[str] = None
+    terminal_error: Optional[dict] = None
+    successful_member_ids: Optional[list[str]] = None
+    excluded_member_ids: Optional[list[str]] = None
+    effective_chairman_id: Optional[str] = None
 
     errors: list[dict] = Field(default_factory=list)
     created_at: str

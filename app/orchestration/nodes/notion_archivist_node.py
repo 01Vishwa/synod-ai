@@ -29,8 +29,10 @@ from app.orchestration.context import GraphDependencies
 logger = logging.getLogger(__name__)
 
 
+from langchain_core.runnables.config import RunnableConfig
+
 async def notion_archivist_node(
-    state: CouncilState, config: dict[str, Any]
+    state: CouncilState, config: RunnableConfig
 ) -> dict[str, Any]:
     """
     LangGraph node: Push the final report to Notion via MCP.

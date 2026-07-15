@@ -26,6 +26,9 @@ interface ChairmanReportProps {
   chairmanMemberId: string;
   notionPageUrl?: string;
   traceId?: string;
+  stage3Status?: string;
+  sessionStatus?: string;
+  excludedMemberIds?: string[];
 }
 
 function ChairmanBadge({ member }: { member: CouncilMemberConfig | undefined }) {
@@ -62,13 +65,22 @@ export function ChairmanReport({
   chairmanMemberId,
   notionPageUrl,
   traceId,
+  stage3Status,
+  sessionStatus,
+  excludedMemberIds = [],
 }: ChairmanReportProps) {
   const [showReveal, setShowReveal] = useState(false);
+
+  const isSkipped = stage3Status === 'skipped' || stage3Status === 'failed' || sessionStatus === 'failed';
 
   const chairmanMember = members.find((m) => m.member_id === chairmanMemberId);
 
   // Sort members by score for the reveal table
   const sortedMembers = [...members].sort((a, b) => {
+    const isAE = excludedMemberIds.includes(a.member_id);
+    const isBE = excludedMemberIds.includes(b.member_id);
+    if (isAE && !isBE) return 1;
+    if (!isAE && isBE) return -1;
     const sa = aggregateScores[a.member_id] ?? 0;
     const sb = aggregateScores[b.member_id] ?? 0;
     return sb - sa;
@@ -79,10 +91,15 @@ export function ChairmanReport({
   return (
     <div>
       {/* Chairman identity banner */}
-      <ChairmanBadge member={chairmanMember} />
+      {!isSkipped && <ChairmanBadge member={chairmanMember} />}
 
       {/* The report itself */}
-      {reportMd ? (
+      {isSkipped ? (
+        <div className="border-2 border-black rounded-md p-6 bg-grey-93 mb-8">
+          <p className="font-bold mb-1">Chairman synthesis skipped.</p>
+          <p className="text-xs text-subtle m-0">Synthesis cannot run because no valid deliberations completed.</p>
+        </div>
+      ) : reportMd ? (
         <div className="prose" style={{ maxWidth: '100%', marginBottom: 'var(--space-8)' }}>
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {reportMd}
@@ -108,7 +125,7 @@ export function ChairmanReport({
       )}
 
       {/* Citations */}
-      {citations.length > 0 && (
+      {!isSkipped && citations.length > 0 && (
         <section
           aria-labelledby="citations-heading"
           style={{
@@ -199,6 +216,7 @@ export function ChairmanReport({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
               {sortedMembers.map((member, i) => {
                 const resp = stage1Responses.find((r) => r.member_id === member.member_id);
+                const isExcluded = excludedMemberIds.includes(member.member_id);
                 const score = aggregateScores[member.member_id] ?? 0;
                 const pct = maxScore > 0 ? (score / maxScore) * 100 : 0;
                 const isChairman = member.member_id === chairmanMemberId;
@@ -212,19 +230,25 @@ export function ChairmanReport({
                       gap: 'var(--space-3)',
                       alignItems: 'center',
                       padding: 'var(--space-2) var(--space-3)',
-                      border: isChairman ? '2px solid var(--grey-0)' : '1px solid var(--color-border)',
+                      border: isChairman && !isSkipped ? '2px solid var(--grey-0)' : '1px solid var(--color-border)',
                       borderRadius: 'var(--radius-sm)',
+                      background: isExcluded ? 'rgba(0,0,0,0.02)' : 'transparent',
                     }}
                   >
                     <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--text-xs)' }}>
                       {i + 1}
                     </span>
                     <div>
-                      <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>
+                      <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: isExcluded ? 'var(--color-text-muted)' : 'inherit' }}>
                         {member.display_label}
-                        {isChairman && (
+                        {isChairman && !isSkipped && (
                           <span style={{ marginLeft: 'var(--space-2)', fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 400, padding: '0 4px', border: '1px solid var(--grey-0)', borderRadius: '2px' }}>
                             CHAIRMAN
+                          </span>
+                        )}
+                        {isExcluded && (
+                          <span style={{ marginLeft: 'var(--space-2)', fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 700, padding: '0 4px', border: '1px solid red', color: 'red', borderRadius: '2px' }}>
+                            EXCLUDED
                           </span>
                         )}
                       </div>
@@ -233,26 +257,28 @@ export function ChairmanReport({
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', marginBottom: '4px' }}>
-                        {score.toFixed(2)}
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', marginBottom: '4px', color: isExcluded ? 'red' : 'inherit', fontWeight: isExcluded ? 700 : 'normal' }}>
+                        {isExcluded ? 'FAILED/EXCLUDED' : score.toFixed(2)}
                       </div>
-                      <div
-                        style={{
-                          width: '80px',
-                          height: '6px',
-                          background: 'var(--grey-93)',
-                          borderRadius: '3px',
-                          overflow: 'hidden',
-                        }}
-                      >
+                      {!isExcluded && (
                         <div
                           style={{
-                            width: `${pct}%`,
-                            height: '100%',
-                            background: 'var(--grey-0)',
+                            width: '80px',
+                            height: '6px',
+                            background: 'var(--grey-93)',
+                            borderRadius: '3px',
+                            overflow: 'hidden',
                           }}
-                        />
-                      </div>
+                        >
+                          <div
+                            style={{
+                              width: `${pct}%`,
+                              height: '100%',
+                              background: 'var(--grey-0)',
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

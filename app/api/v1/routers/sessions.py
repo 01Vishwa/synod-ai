@@ -148,6 +148,14 @@ async def _create_session_impl(
         "dashboard_spec": None,
         "errors": [],
         "archive_to_notion": req.archive_to_notion,
+        "session_status": "pending",
+        "stage_1_status": "pending",
+        "stage_2_status": "pending",
+        "stage_3_status": "pending",
+        "terminal_error": None,
+        "successful_member_ids": [],
+        "excluded_member_ids": [],
+        "effective_chairman_id": req.chairman_member_id or "",
         "created_at": "",  # set by repository
         "updated_at": "",  # set by repository
     }
@@ -243,6 +251,7 @@ def _state_to_response(state: dict[str, Any], tracer: Any | None = None) -> Sess
         stage=state["stage"],
         user_query=state["user_query"],
         member_count=len(state.get("members", [])),  # derived — not stored in CouncilState
+        members=state.get("members", []),
         research_enabled=state.get("research_enabled", False),
         research_provider=state.get("research_provider"),
         stage_1_responses=state.get("stage_1_responses", []),
@@ -256,6 +265,14 @@ def _state_to_response(state: dict[str, Any], tracer: Any | None = None) -> Sess
         notion_page_url=state.get("notion_page_url"),
         trace_url=trace_url,
         dashboard_spec=state.get("dashboard_spec"),
+        session_status=state.get("session_status"),
+        stage_1_status=state.get("stage_1_status"),
+        stage_2_status=state.get("stage_2_status"),
+        stage_3_status=state.get("stage_3_status"),
+        terminal_error=state.get("terminal_error"),
+        successful_member_ids=state.get("successful_member_ids"),
+        excluded_member_ids=state.get("excluded_member_ids"),
+        effective_chairman_id=state.get("effective_chairman_id"),
         errors=state.get("errors", []),
         created_at=state.get("created_at", ""),
         updated_at=state.get("updated_at", ""),
@@ -387,6 +404,9 @@ async def stream_session(
                 async with async_session_factory() as poll_session:
                     repo = PostgresSessionRepository(poll_session)
                     state = await repo.load(session_id, user_id=user_id)
+            except asyncio.CancelledError:
+                logger.info("stream_session: connection cancelled by client for %s", session_id)
+                raise
             except Exception as exc:
                 logger.warning(
                     "stream_session: repo.load failed for %s: %s", session_id, exc

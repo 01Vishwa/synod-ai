@@ -35,7 +35,7 @@ from app.api.v1.schemas.providers import (
     TestConnectionRequest,
     TestConnectionResponse,
 )
-from app.core.exceptions import ProviderError
+from app.core.exceptions import ProviderError, AuthenticationError
 
 logger = logging.getLogger(__name__)
 
@@ -144,9 +144,46 @@ async def upsert_provider_key(
             },
         )
 
+    # Normalize and reject empty keys
+    api_key = req.api_key.strip()
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "EMPTY_API_KEY",
+                "message": "API key cannot be empty.",
+            },
+        )
+
+    # Validate the plaintext key against the provider before persistence
+    try:
+        adapter = ProviderAdapterFactory.create(req.provider)
+        is_valid = await adapter.validate_key(api_key)
+        if not is_valid:
+            raise AuthenticationError(
+                message="Connection failed. Please check your API key.",
+                provider=req.provider,
+            )
+    except AuthenticationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "AUTHENTICATION_FAILED",
+                "message": exc.message,
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "PROVIDER_VALIDATION_ERROR",
+                "message": f"Failed to validate key with provider: {exc}",
+            },
+        )
+
     # ── 2. Encrypt — fail fast if vault is misconfigured ────────────────────
     try:
-        ciphertext = vault.encrypt(req.api_key)
+        ciphertext = vault.encrypt(api_key)
     except Exception:
         logger.exception(
             "POST /providers — encryption failed",
@@ -162,7 +199,7 @@ async def upsert_provider_key(
         )
 
     # ── 3. Compute safe display fingerprint ─────────────────────────────────
-    fingerprint = _compute_fingerprint(req.api_key)
+    fingerprint = _compute_fingerprint(api_key)
 
     # ── 4. Upsert via select + update or insert ──────────────────────────────
     try:
@@ -173,13 +210,16 @@ async def upsert_provider_key(
         result = await db.execute(stmt)
         existing = result.scalar_one_or_none()
 
+        import datetime
+        now = datetime.datetime.now(datetime.timezone.utc)
+
         if existing:
             # Update existing row — preserves the row's id and created_at
             existing.ciphertext_b64 = ciphertext
             existing.key_fingerprint = fingerprint
-            # Clear stale test results — key changed, previous test is invalid
-            existing.last_test_ok = None
-            existing.last_tested_at = None
+            # Key validation succeeded, save the positive test results
+            existing.last_test_ok = True
+            existing.last_tested_at = now
             existing.last_test_error = None
             model = existing
             logger.info(
@@ -192,6 +232,9 @@ async def upsert_provider_key(
                 provider=req.provider,
                 ciphertext_b64=ciphertext,
                 key_fingerprint=fingerprint,
+                last_test_ok=True,
+                last_tested_at=now,
+                last_test_error=None,
             )
             db.add(model)
             logger.info(

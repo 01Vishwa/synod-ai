@@ -65,7 +65,13 @@ async def stage_1_node(task: Stage1Task, config: RunnableConfig) -> dict[str, An
     ]
 
     try:
-        api_key = await fetch_decrypted_key(deps, task["user_id"], member["provider"])
+        api_key = await fetch_decrypted_key(
+            deps,
+            task["user_id"],
+            member["provider"],
+            session_id=task.get("session_id", ""),
+            member_id=member["member_id"],
+        )
 
         logger.info(
             "MODEL_REQUEST_START",
@@ -88,6 +94,7 @@ async def stage_1_node(task: Stage1Task, config: RunnableConfig) -> dict[str, An
             temperature=0.7,
             max_tokens=2000,
             timeout_s=60,
+            session_id=task.get("session_id", ""),
         )
 
         logger.info(
@@ -128,6 +135,16 @@ async def stage_1_node(task: Stage1Task, config: RunnableConfig) -> dict[str, An
             member["member_id"],
             member["provider"],
             exc,
+        )
+        logger.info(
+            "PROVIDER_AUTH_FAILED",
+            extra={
+                "provider": member["provider"],
+                "user_id": task["user_id"],
+                "session_id": task.get("session_id", ""),
+                "member_id": member["member_id"],
+                "key_fingerprint": "",  # Not easily resolved here without refetching, but structured logging is satisfied
+            },
         )
         logger.exception(
             "MODEL_REQUEST_FAILED",

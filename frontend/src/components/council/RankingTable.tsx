@@ -14,6 +14,8 @@ interface RankingTableProps {
   members: CouncilMemberConfig[];
   // server-side anonymization map (member_id -> label)
   anonymizationMap: Record<string, string>;
+  stage2Status?: string;
+  sessionStatus?: string;
 }
 
 function ScoreBar({ score, max }: { score: number; max: number }) {
@@ -71,8 +73,21 @@ export function RankingTable({
   aggregateScores,
   members,
   anonymizationMap,
+  stage2Status,
+  sessionStatus,
 }: RankingTableProps) {
   const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
+
+  const isSkipped = stage2Status === 'skipped' || stage2Status === 'failed' || sessionStatus === 'failed';
+
+  if (isSkipped) {
+    return (
+      <div className="border-2 border-black rounded-md p-6 bg-grey-93">
+        <p className="font-bold mb-1">Peer review skipped — no successful Stage 1 responses.</p>
+        <p className="text-xs text-subtle m-0">At least two successful opinions are required for blind peer review.</p>
+      </div>
+    );
+  }
 
   if (members.length === 0) {
     return (
