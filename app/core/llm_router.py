@@ -103,6 +103,8 @@ class LLMRouter:
                           Defaults to 3 (matches settings.COUNCIL_MEMBER_MAX_RETRIES + 1).
         """
         self._max_attempts = max_attempts
+        # run-scoped provider auth failures: (session_id, provider) -> AuthenticationError
+        self._auth_failures: dict[tuple[str, str], AuthenticationError] = {}
         logger.info("LLMRouter initialised (max_attempts=%d).", max_attempts)
 
     async def chat(
@@ -116,6 +118,7 @@ class LLMRouter:
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         timeout_s: int = 60,
+        session_id: str = "",
     ) -> ChatResponse:
         """
         Execute a single chat-completion call with retry + circuit-breaker.
@@ -132,6 +135,7 @@ class LLMRouter:
             temperature: Sampling temperature.
             max_tokens:  Optional hard ceiling on response tokens.
             timeout_s:   Per-call HTTP timeout in seconds.
+            session_id:  Stable session identifier for run-scoped auth fast-fail.
 
         Returns:
             ChatResponse from the adapter.
@@ -141,6 +145,15 @@ class LLMRouter:
             CircuitOpenError       — breaker is OPEN; call not attempted.
             FallbackExhaustedError — all retry attempts exhausted.
         """
+        # Run-scoped auth fail-fast
+        if session_id and (session_id, provider) in self._auth_failures:
+            logger.warning(
+                "LLMRouter: Fast-failing request for provider '%s' (session '%s') due to previous auth failure.",
+                provider,
+                session_id,
+            )
+            raise self._auth_failures[(session_id, provider)]
+
         breaker = await get_breaker(user_id=user_id, provider=provider)
         adapter = ProviderAdapterFactory.create(provider)
 
@@ -170,7 +183,7 @@ class LLMRouter:
         try:
             # Gate: raise CircuitOpenError immediately if OPEN
             result: ChatResponse = await breaker.call(_attempt)
-        except AuthenticationError:
+        except AuthenticationError as exc:
             # Auth errors are not retried and do NOT trip the circuit breaker
             # (a bad key is a user config issue, not a provider outage).
             logger.error(
@@ -179,6 +192,12 @@ class LLMRouter:
                 provider,
                 user_id,
             )
+            if session_id:
+                self._auth_failures[(session_id, provider)] = exc
+
+            # Mark user provider credential invalid in DB
+            import asyncio
+            asyncio.create_task(self._mark_user_provider_credential_invalid(user_id, provider, str(exc)))
             raise
         except CircuitOpenError:
             logger.warning(
@@ -224,3 +243,32 @@ class LLMRouter:
                 result.latency_ms,
             )
             return result
+
+    async def _mark_user_provider_credential_invalid(
+        self,
+        user_id: str,
+        provider: str,
+        error_msg: str,
+    ) -> None:
+        """Mark provider credential invalid in the database when it fails at runtime."""
+        from app.adapters.persistence.database import async_session_factory
+        from app.adapters.persistence.models import ProviderKeyModel
+        from sqlalchemy import select
+        import datetime
+
+        try:
+            async with async_session_factory() as session:
+                stmt = select(ProviderKeyModel).where(
+                    ProviderKeyModel.user_id == user_id,
+                    ProviderKeyModel.provider == provider,
+                )
+                result = await session.execute(stmt)
+                model = result.scalar_one_or_none()
+                if model:
+                    model.last_test_ok = False
+                    model.last_tested_at = datetime.datetime.now(datetime.timezone.utc)
+                    model.last_test_error = error_msg[:200]
+                    await session.commit()
+                    logger.info("Marked DB key invalid for provider '%s' (user '%s').", provider, user_id)
+        except Exception as e:
+            logger.warning("Failed to mark provider key invalid in DB: %s", e)

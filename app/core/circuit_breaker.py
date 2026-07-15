@@ -28,7 +28,7 @@ from enum import Enum, auto
 from dataclasses import dataclass, field
 from typing import Any, Callable, Coroutine, TypeVar
 
-from app.core.exceptions import CircuitOpenError
+from app.core.exceptions import CircuitOpenError, AuthenticationError
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +93,8 @@ class CircuitBreaker:
 
         try:
             result: T = await fn(*args, **kwargs)
+        except AuthenticationError:
+            raise
         except Exception as exc:
             async with self._lock:
                 self._record_failure()

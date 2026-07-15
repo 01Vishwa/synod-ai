@@ -112,6 +112,16 @@ class CouncilState(TypedDict):
     # Error log (appended; run continues with surviving members unless all fail)
     errors: list[dict]                      # {member_id, stage, message, timestamp}
 
+    # Explicit status fields (Task 11)
+    session_status: Optional[Literal["pending", "running", "completed", "degraded", "failed"]]
+    stage_1_status: Optional[Literal["pending", "running", "completed", "degraded", "failed", "skipped"]]
+    stage_2_status: Optional[Literal["pending", "running", "completed", "degraded", "failed", "skipped"]]
+    stage_3_status: Optional[Literal["pending", "running", "completed", "degraded", "failed", "skipped"]]
+    terminal_error: Optional[dict]  # {code, message}
+    successful_member_ids: Optional[list[str]]
+    excluded_member_ids: Optional[list[str]]
+    effective_chairman_id: Optional[str]
+
     # Timestamps (ISO-8601 strings for JSON serializability)
     created_at: str
     updated_at: str

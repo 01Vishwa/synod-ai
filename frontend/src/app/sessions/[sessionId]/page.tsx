@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import { useCouncilSession } from '@/hooks/useCouncilSession';
 import { useDashboardSpec } from '@/hooks/useDashboardSpec';
 import { MemberTabs } from '@/components/council/MemberTabs';
@@ -182,14 +183,30 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
       )}
 
       {/* Global Error Banner */}
-      {status === 'error' && state.stage === 'error' && (
+      {state.session_status === 'failed' && state.terminal_error?.code === 'NO_VALID_STAGE_1_RESPONSES' ? (
+        <div
+          role="alert"
+          className="col-span-12 border-2 border-black rounded-md p-6 mb-8 bg-grey-93"
+        >
+          <h3 className="text-xl font-display font-bold mb-2">Council stopped</h3>
+          <p className="text-muted mb-4">
+            All Council members failed because the OpenRouter credential was rejected. Update and validate your OpenRouter API key in Settings, then start a new Council session.
+          </p>
+          <Link
+            href="/settings"
+            className="inline-block bg-black text-white font-semibold px-4 py-2 rounded text-sm hover:bg-grey-10 transition-colors"
+          >
+            Go to Settings
+          </Link>
+        </div>
+      ) : (status === 'error' || state.session_status === 'failed' || state.stage === 'error') && (
         <div
           role="alert"
           className="col-span-12 border-2 border-black rounded-md p-6 mb-8"
         >
           <h3 className="text-xl font-display font-bold mb-2">Session Halted</h3>
           <p className="text-muted m-0">
-            {error || 'All Council Members failed during execution.'}
+            {state.terminal_error?.message || error || 'All Council Members failed during execution.'}
           </p>
         </div>
       )}
@@ -242,6 +259,8 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
               aggregateScores={state.aggregate_scores ?? {}}
               members={members}
               anonymizationMap={state.anonymization_map ?? {}}
+              stage2Status={state.stage_2_status}
+              sessionStatus={state.session_status}
             />
           </section>
         )}
@@ -257,6 +276,9 @@ export default function SessionPage({ params }: { params: { sessionId: string } 
               chairmanMemberId={state.chairman_member_id ?? ''}
               notionPageUrl={state.notion_page_url}
               traceId={state.trace_id}
+              stage3Status={state.stage_3_status}
+              sessionStatus={state.session_status}
+              excludedMemberIds={state.excluded_member_ids}
             />
           </section>
         )}

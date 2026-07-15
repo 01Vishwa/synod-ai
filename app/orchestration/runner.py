@@ -178,6 +178,22 @@ async def run_council_graph(
             )
             return
 
+    # ── Step 2.5: Validate council members exist ──────────────────────────
+    if not initial_state.get("members"):
+        logger.error(
+            "COUNCIL_MEMBERS_EMPTY",
+            extra={
+                "session_id": str(session_id),
+                "reason": "initial_state has no members configured",
+            },
+        )
+        await _write_error_to_repo(
+            session_id=session_id,
+            user_id=authoritative_user_id,
+            error_msg="COUNCIL_MEMBERS_EMPTY: No council members were resolved or configured for this session.",
+        )
+        return
+
     # ── Step 3: Inject validated user_id into state ───────────────────────
     # Propagate the validated user_id into the state so every graph node and
     # repository call has access to it via the declared CouncilState field.

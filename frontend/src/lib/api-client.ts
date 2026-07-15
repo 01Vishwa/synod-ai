@@ -67,6 +67,14 @@ export interface CouncilState {
   errors: Array<Record<string, unknown>>;
   created_at: string;
   updated_at: string;
+  session_status?: string;
+  stage_1_status?: string;
+  stage_2_status?: string;
+  stage_3_status?: string;
+  terminal_error?: { code: string; message: string };
+  successful_member_ids?: string[];
+  excluded_member_ids?: string[];
+  effective_chairman_id?: string;
 }
 
 export interface ModelInfo {

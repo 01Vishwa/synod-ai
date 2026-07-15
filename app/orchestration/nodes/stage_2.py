@@ -32,6 +32,7 @@ class Stage2Task(TypedDict):
     user_query: str
     shuffled_responses: list[MemberResponse]
     user_id: str
+    session_id: str
 
 
 def _build_prompt(query: str, responses: list[MemberResponse]) -> str:
@@ -106,7 +107,13 @@ async def stage_2_node(task: Stage2Task, config: RunnableConfig) -> dict[str, An
     ]
 
     try:
-        api_key = await fetch_decrypted_key(deps, task["user_id"], member["provider"])
+        api_key = await fetch_decrypted_key(
+            deps,
+            task["user_id"],
+            member["provider"],
+            session_id=task.get("session_id", ""),
+            member_id=member["member_id"],
+        )
         
         # Use the LLMRouter (retry + circuit breaker) instead of calling
         # the adapter directly.
@@ -119,6 +126,7 @@ async def stage_2_node(task: Stage2Task, config: RunnableConfig) -> dict[str, An
             temperature=0.4,  # Lower temp for more analytical ranking
             max_tokens=1500,
             timeout_s=60,
+            session_id=task.get("session_id", ""),
         )
 
         ranking_order = _parse_ranking(response.content, expected_labels) # type: ignore
@@ -161,6 +169,16 @@ async def stage_2_node(task: Stage2Task, config: RunnableConfig) -> dict[str, An
             member["member_id"],
             member["provider"],
             exc,
+        )
+        logger.info(
+            "PROVIDER_AUTH_FAILED",
+            extra={
+                "provider": member["provider"],
+                "user_id": task["user_id"],
+                "session_id": task.get("session_id", ""),
+                "member_id": member["member_id"],
+                "key_fingerprint": "",
+            },
         )
         await deps.tracer.end_span(span, error=exc)
         error_resp = MemberResponse(
