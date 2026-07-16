@@ -43,9 +43,22 @@ export function SearchableSelect({
   const selectedOption = options.find((opt) => opt.value === value);
   const displayLabel = selectedOption ? selectedOption.label : placeholder;
 
-  const filteredOptions = options.filter((opt) =>
-    opt.label.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const normalizeSearch = (value: string): string => {
+    return value
+      .toLowerCase()
+      .trim()
+      .replace(/[\/:_-]+/g, ' ')
+      .replace(/\s+/g, ' ');
+  };
+
+  const normalizedQuery = normalizeSearch(searchQuery);
+
+  const filteredOptions = options.filter((opt) => {
+    if (!normalizedQuery) return true;
+    const slug = opt.value.includes('/') ? opt.value.split('/').pop() || '' : opt.value;
+    const searchableText = normalizeSearch(`${opt.value} ${opt.label} ${slug}`);
+    return searchableText.includes(normalizedQuery);
+  });
 
   return (
     <div className={`relative ${className}`} ref={containerRef}>

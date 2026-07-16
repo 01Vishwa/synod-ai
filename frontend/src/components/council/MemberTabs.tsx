@@ -8,6 +8,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import type { CouncilMemberConfig, MemberResponse } from '@/lib/api-client';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface MemberTabsProps {
   members: CouncilMemberConfig[];
@@ -213,10 +215,11 @@ export function MemberTabs({ members, responses, streamingMemberIds }: MemberTab
                   )}
 
                   {res && !res.error && (
-                    <div
-                      className="prose max-w-none text-sm"
-                      dangerouslySetInnerHTML={{ __html: res.content }}
-                    />
+                    <div className="prose max-w-none text-sm">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {res.content}
+                      </ReactMarkdown>
+                    </div>
                   )}
 
                   {isStreamingThis && !res?.content && (
@@ -328,10 +331,11 @@ export function MemberTabs({ members, responses, streamingMemberIds }: MemberTab
           )}
 
           {activeResponse && !activeResponse.error && (
-            <div
-              className="prose max-w-none text-sm"
-              dangerouslySetInnerHTML={{ __html: activeResponse.content }}
-            />
+            <div className="prose max-w-none text-sm">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {activeResponse.content}
+              </ReactMarkdown>
+            </div>
           )}
 
           {isStreaming && !activeResponse?.content && (
