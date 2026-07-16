@@ -1,6 +1,6 @@
 # Installation Guide
 
-Follow these steps to run Synod locally for development. The platform is divided into a Python/FastAPI backend and a Node.js/Next.js frontend.
+Follow these steps to run Synod locally for development. The platform is divided into a Python/FastAPI backend and a Next.js frontend.
 
 ## Prerequisites
 - **Python:** 3.11 or later
@@ -10,10 +10,10 @@ Follow these steps to run Synod locally for development. The platform is divided
 ---
 
 ## 1. Supabase Setup
-Synod's security relies entirely on Supabase Authentication and Row-Level Security (RLS).
+Synod's security relies on Supabase Authentication and Row-Level Security (RLS).
 1. Create a new Supabase project.
 2. Under **Authentication -> Providers**, ensure Email/Password login is enabled.
-3. Retrieve your **Project URL** and **Anon Key** (found in Project Settings -> API).
+3. Retrieve your **Project URL**, **Anon Key**, and **Service Role Key** (found in Project Settings -> API).
 4. Run the SQL migrations (found in the backend's `alembic` setup) against your Supabase database string.
 5. Enable RLS on the `council_sessions` and `provider_keys` tables in the Supabase SQL editor.
 
@@ -22,7 +22,7 @@ Synod's security relies entirely on Supabase Authentication and Row-Level Securi
 ## 2. Backend Setup
 
 ### Environment Preparation
-Navigate to the `app` root (or `backend` if separated):
+Navigate to the repository root directory:
 ```bash
 cd d:\synod-ai
 ```
@@ -39,7 +39,6 @@ source venv/bin/activate
 Install dependencies:
 ```bash
 pip install -r requirements.txt
-# If using a pyproject.toml / poetry structure (ensure you install the local project):
 pip install -e .
 ```
 
@@ -49,9 +48,15 @@ Copy `.env.example` to `.env`:
 cp .env.example .env
 ```
 Populate `.env` with:
-- `SUPABASE_URL`: Your Supabase project URL.
 - `DATABASE_URL`: The direct PostgreSQL connection string (asyncpg format: `postgresql+asyncpg://...`).
-- `LANGFUSE_PUBLIC_KEY` & `LANGFUSE_SECRET_KEY`: Tracing credentials (optional but highly recommended).
+- `SUPABASE_URL`: Your Supabase project URL.
+- `SUPABASE_ANON_KEY`: Your Supabase public anon key.
+- `SUPABASE_SERVICE_ROLE_KEY`: Your Supabase service role key (backend-only).
+- `CREDENTIAL_ENCRYPTION_KEY`: A 32-byte URL-safe base64 encryption key (generated via the python snippet below).
+  ```bash
+  python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+  ```
+- `LANGSMITH_TRACING` & `LANGSMITH_API_KEY`: Tracing credentials (optional).
 
 ### Database Migrations
 Initialize the database tables:
@@ -83,7 +88,7 @@ npm install
 
 ### Environment Variables
 Create a `.env.local` file in the `frontend/` directory:
-```bash
+```env
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1

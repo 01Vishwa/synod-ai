@@ -32,9 +32,21 @@ function CloseIcon() {
 
 function SynodWordmark() {
   return (
-    <span className="font-display font-bold text-lg tracking-tight text-black">
-      SYNOD
-    </span>
+    <div className="flex items-center gap-2">
+      <svg className="w-5 h-5 text-black" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+        <circle cx="16" cy="16" r="16" fill="currentColor" />
+        <line x1="16" y1="17" x2="16" y2="8" stroke="white" strokeWidth="2" strokeLinecap="round" />
+        <line x1="16" y1="17" x2="8" y2="22" stroke="white" strokeWidth="2" strokeLinecap="round" />
+        <line x1="16" y1="17" x2="24" y2="22" stroke="white" strokeWidth="2" strokeLinecap="round" />
+        <circle cx="16" cy="17" r="3" fill="white" />
+        <circle cx="16" cy="8" r="2" fill="white" />
+        <circle cx="8" cy="22" r="2" fill="white" />
+        <circle cx="24" cy="22" r="2" fill="white" />
+      </svg>
+      <span className="font-display font-bold text-lg tracking-tight text-black">
+        SYNOD
+      </span>
+    </div>
   );
 }
 

@@ -105,7 +105,7 @@ export function ChairmanReport({
             {reportMd}
           </ReactMarkdown>
         </div>
-      ) : (
+      ) : stage3Status === 'running' ? (
         <div>
           {[1, 2, 3, 4].map((i) => (
             <div
@@ -121,6 +121,10 @@ export function ChairmanReport({
           <p style={{ color: 'var(--color-text-subtle)', fontSize: 'var(--text-sm)' }}>
             ◌ Chairman is synthesizing the final report…
           </p>
+        </div>
+      ) : (
+        <div style={{ color: 'var(--color-text-subtle)', fontSize: 'var(--text-sm)' }}>
+          Waiting for Chairman synthesis…
         </div>
       )}
 
@@ -307,16 +311,6 @@ export function ChairmanReport({
             style={{ fontFamily: 'var(--font-mono)' }}
           >
             ✓ Archived to Notion
-          </a>
-        )}
-        {traceId && (
-          <a
-            href={`/api/v1/observability/trace/${traceId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ fontFamily: 'var(--font-mono)' }}
-          >
-            View full Langfuse trace →
           </a>
         )}
       </div>

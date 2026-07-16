@@ -1,13 +1,13 @@
 # Technology Stack
 
-Synod utilizes a rigidly structured stack dividing concerns between a stateless Python backend, an interactive TypeScript frontend, and a managed PostgreSQL datastore. 
+Synod utilizes a structured stack dividing concerns between a stateless Python backend, an interactive Next.js frontend, and a managed PostgreSQL datastore.
 
 ## Backend (Python)
 
 ### Core Frameworks
 - **Python:** 3.11+
 - **FastAPI:** High-performance async web framework exposing REST endpoints and SSE (Server-Sent Events) for real-time dashboard updates.
-- **Pydantic / Pydantic Settings:** For strict environment variable parsing and API request/response validation schemas.
+- **Pydantic / Pydantic Settings:** For strict environment variable parsing, API validation, and UI component schema constraints.
 
 ### AI & Orchestration
 - **LangGraph:** Controls the core workflow. Defines the `StateGraph` which manages transitions between the Decision Orchestrator, Council Members, and the Chairman via a single `CouncilState`.
@@ -20,7 +20,7 @@ Synod utilizes a rigidly structured stack dividing concerns between a stateless 
 - **Alembic:** Database migration management.
 
 ### Security
-- **PyJWKClient (via PyJWT):** Directly queries the Supabase JSON Web Key Set to asynchronously decode and verify ES256 JSON Web Tokens (JWT).
+- **PyJWT:** Directly queries the Supabase JSON Web Key Set to asynchronously decode and verify ES256 JSON Web Tokens (JWT).
 - **Cryptography (Fernet):** AES-based encryption for securing user-provided API keys (OpenRouter, NVIDIA NIM, etc.) at rest in the database.
 
 ## Frontend (TypeScript)
@@ -32,7 +32,7 @@ Synod utilizes a rigidly structured stack dividing concerns between a stateless 
 
 ### Authentication & UI
 - **@supabase/ssr:** Handles user sessions seamlessly across the server and client components in Next.js.
-- **TailwindCSS:** Used strictly to enforce the black-and-white monochromatic design system.
+- **TailwindCSS:** Enforces the black-and-white monochromatic design system.
 - **Lucide React:** Iconography.
 
 ### Dynamic Rendering
@@ -42,4 +42,4 @@ Synod utilizes a rigidly structured stack dividing concerns between a stateless 
 - **Authentication:** Supabase (JWT / RLS).
 - **Inference Providers:** OpenRouter, NVIDIA NIM, GitHub Models.
 - **Research Providers:** Tavily, Anakin API.
-- **Document Export:** Notion via Notion MCP (Model Context Protocol).
+- **Document Export:** Notion API via standard OAuth 2.0 PKCE.

@@ -97,8 +97,11 @@ export function RankingTable({
     );
   }
 
+  // Only include members who successfully made it to Stage 2
+  const eligibleMembers = members.filter(m => m.member_id in anonymizationMap);
+
   // Build sorted member list by aggregate score (descending)
-  const sortedMembers = [...members].sort((a, b) => {
+  const sortedMembers = [...eligibleMembers].sort((a, b) => {
     const sa = aggregateScores[a.member_id] ?? 0;
     const sb = aggregateScores[b.member_id] ?? 0;
     return sb - sa;
@@ -190,21 +193,27 @@ export function RankingTable({
         </p>
 
         {rankings.length === 0 ? (
-          <div>
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="skeleton"
-                style={{ height: '72px', marginBottom: 'var(--space-3)', borderRadius: 'var(--radius-sm)' }}
-              />
-            ))}
+          stage2Status === 'running' ? (
+            <div>
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="skeleton"
+                  style={{ height: '72px', marginBottom: 'var(--space-3)', borderRadius: 'var(--radius-sm)' }}
+                />
+              ))}
+              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-subtle)' }}>
+                ◌ Reviewing…
+              </p>
+            </div>
+          ) : (
             <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-subtle)' }}>
               Waiting for peer reviews to complete…
             </p>
-          </div>
+          )
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-            {members.map((member, i) => {
+            {eligibleMembers.map((member, i) => {
               const entry = rankingByReviewer[member.member_id];
               const reviewerLabel = anonymizationMap[member.member_id] ?? `Member ${String.fromCharCode(65 + i)}`;
               const isExpanded = expandedMemberId === member.member_id;
@@ -249,9 +258,19 @@ export function RankingTable({
                           ranked: {entry.ranking_order.join(' → ')}
                         </span>
                       )}
-                      {!entry && (
+                      {!entry && stage2Status === 'running' && (
                         <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-subtle)' }}>
                           ◌ Reviewing…
+                        </span>
+                      )}
+                      {!entry && (!stage2Status || stage2Status === 'pending') && (
+                        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-subtle)' }}>
+                          ◌ Waiting…
+                        </span>
+                      )}
+                      {!entry && (stage2Status === 'completed' || stage2Status === 'failed') && (
+                        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)' }}>
+                          ✕ Review failed
                         </span>
                       )}
                     </div>
