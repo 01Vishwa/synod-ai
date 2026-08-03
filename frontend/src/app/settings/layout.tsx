@@ -8,40 +8,39 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const pathname = usePathname();
 
   return (
-    <div className="max-w-[720px] mx-auto px-6 py-8">
-      <div className="mb-6">
-        <Link
-          href="/"
-          className="no-underline text-muted text-sm inline-flex items-center gap-2 hover:text-foreground transition-colors"
-        >
-          <span>←</span> Back to Council
-        </Link>
-      </div>
+    <div className="flex flex-col md:flex-row gap-12 w-full">
+      {/* Sub-navigation Sidebar */}
+      <aside className="w-full md:w-[180px] shrink-0">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground mb-6">Settings</h1>
+        <nav className="flex flex-col gap-1">
 
-      <div className="mb-8">
-        <h1 className="font-display text-3xl font-bold mb-2">Settings</h1>
-      </div>
+          <Link
+            href="/settings/providers"
+            className={`px-3 py-2 text-sm rounded-lg transition-colors no-underline ${
+              pathname?.startsWith('/settings/providers')
+                ? 'bg-surface-hover text-foreground font-bold'
+                : 'text-muted font-medium hover:bg-surface-hover hover:text-foreground'
+            }`}
+          >
+            Providers & API Keys
+          </Link>
 
-      <div className="flex gap-6 mb-8 w-fit">
-        <Link
-          href="/settings/providers"
-          className={`no-underline pb-2 text-sm font-semibold border-b-2 transition-colors -mb-[1px] ${
-            pathname?.startsWith('/settings/providers') ? 'border-black text-black' : 'border-transparent text-muted hover:text-foreground'
-          }`}
-        >
-          Model Providers
-        </Link>
-        <Link
-          href="/settings/integrations"
-          className={`no-underline pb-2 text-sm font-semibold border-b-2 transition-colors -mb-[1px] ${
-            pathname?.startsWith('/settings/integrations') ? 'border-black text-black' : 'border-transparent text-muted hover:text-foreground'
-          }`}
-        >
-          Integrations
-        </Link>
-      </div>
+          <Link
+            href="/settings/appearance"
+            className={`px-3 py-2 text-sm rounded-lg transition-colors no-underline ${
+              pathname?.startsWith('/settings/appearance')
+                ? 'bg-surface-hover text-foreground font-bold'
+                : 'text-muted font-medium hover:bg-surface-hover hover:text-foreground'
+            }`}
+          >
+            Appearance
+          </Link>
 
-      <div>
+        </nav>
+      </aside>
+
+      {/* Main Settings Panel */}
+      <div className="flex-1 max-w-2xl">
         {children}
       </div>
     </div>

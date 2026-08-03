@@ -39,17 +39,19 @@ from sqlalchemy.sql import func
 # Matches the 'council_stage' enum in Supabase:
 #   stage_1 | stage_2 | stage_3 | archiving | done | error
 # Values must stay in sync with CouncilState.stage Literal in domain/council_state.py.
+from app.core.config import settings as _settings
+
 _COUNCIL_STAGE_ENUM = Enum(
     "stage_1", "stage_2", "stage_3", "archiving", "done", "error",
     name="council_stage",
-    create_type=False,  # Do NOT emit CREATE TYPE — it already exists in Supabase
+    create_type=_settings.is_development,
 )
 
 # Matches the 'provider_name' enum in Supabase: openrouter | nvidia_nim | github_models
 _PROVIDER_NAME_ENUM = Enum(
-    "openrouter", "nvidia_nim", "github_models",
+    "openrouter", "nvidia_nim", "github_models", "notion",
     name="provider_name",
-    create_type=False,  # Do NOT emit CREATE TYPE — it already exists
+    create_type=_settings.is_development,
 )
 
 

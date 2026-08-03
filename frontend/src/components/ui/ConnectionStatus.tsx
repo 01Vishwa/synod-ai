@@ -20,7 +20,8 @@ export function ConnectionStatus({ status, onRefresh }: ConnectionStatusProps) {
           alignItems: 'center',
           gap: 'var(--space-2)',
           padding: 'var(--space-1) var(--space-3)',
-          background: 'var(--grey-93)',
+          background: 'var(--color-bg-subtle)',
+          color: 'var(--color-text)',
           border: '1px solid var(--color-border)',
           borderRadius: 'var(--radius-sm)',
           fontSize: 'var(--text-xs)',
@@ -42,8 +43,9 @@ export function ConnectionStatus({ status, onRefresh }: ConnectionStatusProps) {
         justifyContent: 'space-between',
         gap: 'var(--space-4)',
         padding: 'var(--space-3) var(--space-4)',
-        background: 'var(--grey-0)',
-        color: 'var(--grey-100)',
+        background: 'var(--color-surface)',
+        color: 'var(--color-text)',
+        border: '1px solid var(--color-border-strong)',
         borderRadius: 'var(--radius-sm)',
         marginBottom: 'var(--space-4)'
       }}
@@ -60,8 +62,8 @@ export function ConnectionStatus({ status, onRefresh }: ConnectionStatusProps) {
         <button 
           onClick={onRefresh}
           style={{
-            background: 'var(--grey-100)',
-            color: 'var(--grey-0)',
+            background: 'var(--color-primary)',
+            color: 'var(--color-primary-fg)',
             border: 'none',
             padding: 'var(--space-2) var(--space-4)',
             borderRadius: 'var(--radius-sm)',

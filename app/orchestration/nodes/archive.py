@@ -6,6 +6,7 @@ Executes the optional final step to export the completed Council report to Notio
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from langchain_core.runnables.config import RunnableConfig
@@ -58,6 +59,6 @@ async def archive_node(state: CouncilState, config: RunnableConfig) -> dict[str,
                 "member_id": "archivist",
                 "stage": "archiving",
                 "message": f"Notion export failed: {exc}",
-                "timestamp": ""
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }]
         }

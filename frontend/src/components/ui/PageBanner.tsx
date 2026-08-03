@@ -11,9 +11,10 @@ export function PageBanner({ title, description, children }: PageBannerProps) {
     <div
       role="alert"
       style={{
-        border: '1px solid var(--grey-0)',
-        borderLeft: '4px solid var(--grey-0)',
-        background: 'var(--grey-100)',
+        border: '1px solid var(--color-border-strong)',
+        borderLeft: '4px solid var(--color-border-strong)',
+        background: 'var(--color-surface)',
+        color: 'var(--color-text)',
         padding: 'var(--space-4)',
         borderRadius: 'var(--radius-sm)',
         display: 'flex',
@@ -27,7 +28,7 @@ export function PageBanner({ title, description, children }: PageBannerProps) {
         {title && <strong style={{ fontSize: 'var(--text-sm)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{title}</strong>}
       </div>
       {(description || children) && (
-        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-subtle)' }}>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
           {description}
           {children}
         </div>

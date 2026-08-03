@@ -130,6 +130,21 @@ _IDENTITY_PATTERNS: list[re.Pattern] = [
     re.compile(r"i am (a |an )?(large language model|llm|ai assistant)", re.IGNORECASE),
     # Training cutoff self-reveals: "my training data ends in …"
     re.compile(r"my (training|knowledge) (data |)(ends|cut.?off)", re.IGNORECASE),
+
+    # xAI / Grok — standalone model/brand mentions
+    re.compile(r"\b(xai|x\.ai|grok(?:-[23])?)\b", re.IGNORECASE),
+
+    # DeepSeek — standalone model/brand mentions
+    re.compile(r"\bdeepseek(?:[-_](?:r1|v3))?\b", re.IGNORECASE),
+
+    # Cohere / Command — model family mentions
+    re.compile(r"\b(cohere|command[-\s]?r\+?)\b", re.IGNORECASE),
+
+    # Mistral / Mixtral — standalone model mentions not caught by "As Mistral, " pattern
+    re.compile(r"\b(mixtral|mistral(?:[-_]large)?)\b", re.IGNORECASE),
+
+    # Meta / Llama — standalone model mentions not caught by "meta ai" prose pattern
+    re.compile(r"\b(llama[-\s]?[23]?|llama(?:[-_]\d+)?)\b", re.IGNORECASE),
 ]
 
 _REPLACEMENT = "[REDACTED]"

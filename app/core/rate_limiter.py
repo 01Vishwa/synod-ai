@@ -24,8 +24,13 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional
 
+from cachetools import TTLCache
+
 from app.core.config import settings
 from app.core.exceptions import RateLimitError
+
+_BUCKET_CACHE_MAX = 2048
+_BUCKET_TTL_SECONDS = 300  # 5 minutes
 
 
 # ── Token Bucket ──────────────────────────────────────────────────────────
@@ -75,7 +80,10 @@ class _TokenBucket:
 
 # ── Registry (Singleton per process) ─────────────────────────────────────
 
-_buckets: dict[tuple[str, str], _TokenBucket] = {}
+_buckets: TTLCache[tuple[str, str], _TokenBucket] = TTLCache(
+    maxsize=_BUCKET_CACHE_MAX,
+    ttl=_BUCKET_TTL_SECONDS,
+)
 _registry_lock = asyncio.Lock()
 
 

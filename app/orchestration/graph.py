@@ -22,6 +22,7 @@ from app.orchestration.nodes.stage_2 import stage_2_node, Stage2Task
 from app.orchestration.nodes.stage_3 import stage_3_node
 from app.orchestration.nodes.notion_archivist_node import notion_archivist_node
 from app.orchestration.nodes.dashboard_builder_node import dashboard_builder_node
+from app.core.event_bus import PeerReviewStarted, get_or_create_bus
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ async def setup_stage_1(state: OrchestratorState, config: RunnableConfig) -> dic
 def route_stage_1(state: OrchestratorState) -> list[Any]:
     """Fan-out to all council members for Stage 1."""
     # We use LangGraph's Send API to execute stage_1_node in parallel
-    from langgraph.constants import Send
+    from langgraph.types import Send
 
     # user_id is now a declared field in CouncilState — safe to access directly.
     # Never use .get("user_id", "") — an empty default silently breaks persistence.
@@ -180,12 +181,18 @@ async def setup_stage_2(state: OrchestratorState, config: RunnableConfig) -> dic
     # Apply local updates for the checkpoint save
     updated_state = {**state, **updates}
     await deps.repository.save_checkpoint(updated_state) # type: ignore
+
+    # Publish PeerReviewStarted before the fan-out so the SSE endpoint
+    # can show the peer-review phase starting in real time.
+    bus = await get_or_create_bus(state["session_id"])
+    await bus.publish(PeerReviewStarted(session_id=state["session_id"]))
+
     return updates
 
 
 def route_stage_2(state: OrchestratorState) -> list[Any]:
     """Fan-out to all council members for Stage 2 (Peer Review)."""
-    from langgraph.constants import Send
+    from langgraph.types import Send
 
     # user_id is a declared field — access directly, never use empty-string default.
     user_id: str = state["user_id"]
@@ -218,6 +225,7 @@ def route_stage_2(state: OrchestratorState) -> list[Any]:
             "shuffled_responses": shuffled,
             "user_id": user_id,
             "session_id": state["session_id"],
+            "total_reviewers": len(active_members),
         }
         tasks.append(Send("stage_2_review", task))
     return tasks

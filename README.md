@@ -1,146 +1,119 @@
-# Synod-Ai - *Where Models Convene, Truth Concludes.*
+# Synod — Where Models Convene, Truth Concludes.
 
-## Project Description
-Synod is a supervisor-orchestrated council of independent AI models that debate, critique, and rank each other's answers — anonymously — before a designated Chairman agent synthesizes the strongest, most defensible response to your question. Instead of blindly trusting a single LLM, Synod fans your query out to a diverse panel, enforces blind peer review, and yields a single evidence-grounded final answer.
+## What It Is
 
-## Problem Statement
-Standard single-LLM queries are susceptible to brand-specific biases, hallucination loops, and lack of rigorous peer critique. Existing multi-agent frameworks often allow unstructured, conversational loops that lead to agent drift and high token consumption. Synod-AI solves this by implementing a structured, deterministic state machine workflow utilizing LangGraph.
+Synod is a self-hosted, supervisor-orchestrated council of language models that debate a single question and hand you back one synthesized answer. You submit a query and pick 3–6 models (from OpenRouter and/or NVIDIA NIM, using your own API keys); the system runs them through three stages — **First Opinions** (every model answers independently and in parallel), **Peer Review** (each model blind-critiques and ranks the other models' anonymized answers, so no model can favor a "trusted" brand), and **Chairman Synthesis** (the highest-ranked model, or one you pin, writes the final report from everything the council produced). Progress streams live to the browser over Server-Sent Events, and a finished session can optionally be archived to Notion.
 
-## Key Features
-- **Multi-Model Deliberation:** Send one prompt, receive parallel opinions from multiple models.
-- **Anonymized Ranking:** Models rank each other's answers anonymously based on merit preventing model name/brand bias.
-- **Chairman Synthesis:** The highest-ranked model is elected as Chairman to synthesize the final evidence-grounded response.
-- **Strict Role-Based Architecture:** Uses LangGraph's Supervisor pattern; models never talk directly to one another.
-- **Dynamic Data UI:** Black-and-white generative UI components stream dynamically via `@json-render/core`.
-- **Bring-Your-Own-Keys (BYOK):** API keys are encrypted at rest using AES-256 Fernet encryption and stored in PostgreSQL.
-- **Full Observability:** End-to-end tracing of node executions, latency, token consumption, and cost via Langfuse/LangSmith.
+## Architecture Overview
+
+The backend is a hexagonal (ports & adapters) FastAPI application: `app/domain` holds framework-free business rules and state, `app/orchestration` runs the deliberation as a LangGraph state machine with `Send`-based fan-out for the parallel stages, and `app/adapters` implements the domain's ports against real providers (OpenRouter, NVIDIA NIM, Tavily, Anakin, Notion, Postgres). Each session's progress is published to an in-process async event bus and streamed to the frontend as SSE. See [docs/CODEBASE_REPORT.md](docs/CODEBASE_REPORT.md) for full detail.
 
 ## Tech Stack
-- **Backend:** Python 3.11+, FastAPI, LangGraph, SQLAlchemy (Async), Alembic, PyJWT.
-- **Frontend:** Next.js 14, React 18, TailwindCSS, @json-render/core.
-- **Database:** PostgreSQL (Supabase) with Row-Level Security (RLS).
-- **Observability:** Langfuse, LangSmith (configurable).
 
-## Project Structure
-```
-synod-ai/
-├── app/                      # Backend Implementation
-│   ├── adapters/             # Concrete integrations (LLM Providers, DB, Notion, Research, Observability)
-│   ├── api/                  # FastAPI Presentation Layer (REST, SSE v1 routes & dependencies)
-│   ├── application/          # CQRS Commands, Handlers, and Services
-│   ├── core/                 # Central configuration, exception mapping, security, rate limiters
-│   ├── domain/               # Pure Python business entities, ports, and rules
-│   ├── orchestration/        # LangGraph StateGraph, nodes, checkpointer, and runner
-│   └── main.py               # FastAPI Bootstrap & Lifespan configuration
-├── docs/                     # Project architectural reports & guides
-├── frontend/                 # Next.js Frontend Application
-│   ├── src/app/              # Next.js App Router pages (sessions, history, settings)
-│   ├── src/components/       # Monochromatic UI Components & json-render registry
-│   └── src/lib/              # SSE Client & API Client utilities
-├── scripts/                  # CI checks & utility scripts
-└── tests/                    # Unit, Integration, and Contract tests
-```
+| Layer | Stack |
+|---|---|
+| Backend | Python 3.11+, FastAPI, LangGraph, LangChain-core, SQLAlchemy (async), PyJWT, `cryptography` (Fernet), Uvicorn |
+| Frontend | Next.js 14.2.5, React 18.3.1, TypeScript 5.5.3, Tailwind CSS 3.4.4, Zod 3.23.8, `@json-render/core`/`@json-render/react` 0.19.0 |
+| Database | PostgreSQL (via SQLAlchemy async + `asyncpg`), accessed through Supabase (Auth + Postgres) |
+| Observability | LangSmith (implemented, real tracer); Langfuse config exists but is currently unimplemented — see Known Limitations |
 
 ## Prerequisites
-- **Python:** 3.11 or later
-- **Node.js:** v18 or later
-- **PostgreSQL Database:** Supabase recommended (provides Auth/JWKS & Postgres)
+
+- **Python ≥ 3.11** (`pyproject.toml` → `requires-python = ">=3.11"`)
+- **Node.js** — no version is pinned in `frontend/package.json` (no `engines` field); Next.js 14.2.5 requires Node 18.17+ upstream. Not confirmed in this repo — verify before publishing if you need an exact minimum.
+- **PostgreSQL** — a Supabase project (recommended) or any Postgres instance reachable via `DATABASE_URL`
 
 ## Environment Variables
-The backend relies on the following environment variables (defined in `app/core/config.py`):
-- `DATABASE_URL`: Direct PostgreSQL connection string (asyncpg driver required).
-- `SUPABASE_URL`: Your Supabase project URL.
-- `SUPABASE_ANON_KEY`: Public anon key for Supabase client.
-- `SUPABASE_SERVICE_ROLE_KEY`: Service role key (backend-only).
-- `CREDENTIAL_ENCRYPTION_KEY`: Fernet-compatible 32-byte URL-safe base64 key for encrypting provider credentials.
-- `FRONTEND_URL`: URL of the Next.js frontend (default: `http://localhost:3000`).
-- `ENVIRONMENT`: `development` | `staging` | `production` (default: `development`).
-- `DEBUG`: Enable debug-level logs (default: `False`).
-- `LANGSMITH_TRACING`: Toggle LangSmith tracing (default: `True`).
-- `LANGSMITH_API_KEY`: API key for LangSmith (optional).
-- `LANGSMITH_PROJECT`: Project name in LangSmith (default: `synod-ai`).
-- `LANGSMITH_ENDPOINT`: Endpoint for LangSmith (default: `https://api.smith.langchain.com`).
-- `LANGFUSE_TRACING`: Toggle Langfuse tracing (default: `False`).
-- `LANGFUSE_PUBLIC_KEY` & `LANGFUSE_SECRET_KEY`: Langfuse API credentials (optional).
-- `LANGFUSE_HOST`: Langfuse host endpoint (default: `https://cloud.langfuse.com`).
-- `NOTION_CLIENT_ID` & `NOTION_CLIENT_SECRET`: Notion API integration credentials.
-- `NOTION_REDIRECT_URI`: OAuth callback URI registered with Notion (default: `http://localhost:3000/settings/notion/callback`).
-- `NOTION_PARENT_PAGE_ID`: Parent Notion page ID to file reports under (optional).
 
-## Running Locally
+Read from `.env.example` and `app/core/config.py`. All fields in `Settings` have a Python-level default, but `SUPABASE_URL` and `CREDENTIAL_ENCRYPTION_KEY` are enforced non-empty by a validator whenever `ENVIRONMENT != "development"` — treat those two as required outside local dev.
 
-### 1. Database Setup
-Synod-AI uses PostgreSQL with migrations managed via Alembic.
-1. Run migrations against your database URL:
+### Required (outside local development)
+
+| Variable | Description |
+|---|---|
+| `SUPABASE_URL` | Supabase project URL, used for JWT verification (JWKS) and the Postgres connection |
+| `CREDENTIAL_ENCRYPTION_KEY` | Fernet key used to encrypt stored provider API keys |
+| `DATABASE_URL` | Direct Postgres connection string (rewritten internally to `postgresql+asyncpg://`) |
+
+### Optional (have working defaults)
+
+| Variable | Default | Description |
+|---|---|---|
+| `SUPABASE_PUBLISHABLE_KEY` / `SUPABASE_ANON_KEY` | `""` | Supabase anon key |
+| `SUPABASE_SECRET_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | `""` | Supabase service-role key |
+| `LANGSMITH_TRACING` | `true` | Enables LangSmith tracing (also needs `LANGSMITH_API_KEY`) |
+| `LANGSMITH_API_KEY` | none | LangSmith API key — tracing is a no-op until this is set |
+| `LANGSMITH_PROJECT` | `evidentia-council` (`.env.example`) / `synod-ai` (code default) | LangSmith project name |
+| `LANGSMITH_ENDPOINT` | `https://api.smith.langchain.com` | LangSmith API endpoint |
+| `LANGFUSE_TRACING` | `false` (`true` in `.env.example` comment) | Gate for Langfuse — **no tracer implementation currently reads this**, see Known Limitations |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` | none / none / `https://cloud.langfuse.com` | Langfuse credentials |
+| `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` | `""` | Notion OAuth app credentials |
+| `NOTION_REDIRECT_URI` | `http://localhost:3000/settings/notion/callback` (code default; `.env.example` shows a backend URL — see Known Limitations) | Must be registered exactly in the Notion integration dashboard |
+| `NOTION_PARENT_PAGE_ID` | none | Notion page to file archived reports under |
+| `ENVIRONMENT` | `development` | `development` \| `staging` \| `production` |
+| `FRONTEND_URL` | `http://localhost:3000` | Used for CORS and OAuth redirects |
+
+## Local Setup
+
+1. **Clone**
    ```bash
-   alembic upgrade head
+   git clone <repo-url> synod-ai && cd synod-ai
    ```
-
-### 2. Backend Setup
-1. Install Python dependencies:
+2. **Backend setup**
    ```bash
-   pip install -r requirements.txt
-   pip install -e .
+   python -m venv .venv
+   source .venv/bin/activate   # Windows: .venv\Scripts\activate
+   pip install -e ".[dev]"
+   cp .env.example .env   # then fill in DATABASE_URL, SUPABASE_URL, CREDENTIAL_ENCRYPTION_KEY, etc.
    ```
-2. Configure `.env` in the root directory (based on `.env.example`).
-3. Start the FastAPI server:
+3. **Database** — there is no Alembic migration tooling in this repo (`alembic.ini` and any `alembic/`/`migrations/` directory are absent). In development, tables are created automatically on backend startup via `Base.metadata.create_all` (gated on `ENVIRONMENT=development`). For any non-development environment, the schema must currently be created by another means — this is a real gap, see Known Limitations.
+4. **Run backend**
    ```bash
-   uvicorn app.main:app --reload
+   uvicorn app.main:app --reload --port 8000
    ```
-   Backend runs at `http://localhost:8000`. Swagger docs are at `http://localhost:8000/docs`.
-
-### 3. Frontend Setup
-1. Navigate to the frontend directory:
+5. **Frontend setup**
    ```bash
    cd frontend
-   ```
-2. Install Node dependencies:
-   ```bash
    npm install
    ```
-3. Configure `.env.local` inside `frontend/` containing:
-   ```env
-   NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-   NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+   Create `frontend/.env.local` with:
    ```
-4. Run Next.js in development mode:
+   NEXT_PUBLIC_API_URL=http://localhost:8000
+   NEXT_PUBLIC_SUPABASE_URL=<your supabase url>
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=<your supabase anon key>
+   ```
+6. **Run frontend**
    ```bash
    npm run dev
    ```
-   Frontend runs at `http://localhost:3000`.
+7. **Verify**
+   - Swagger UI: http://localhost:8000/docs
+   - OpenAPI schema: http://localhost:8000/api/v1/openapi.json
+   - Health check: http://localhost:8000/health
+   - Frontend: http://localhost:3000
 
-## Testing
-Run the Python test suite with the current directory added to `PYTHONPATH`:
+## Running Tests
+
 ```bash
-$env:PYTHONPATH="."; pytest
+PYTHONPATH=. python -m pytest tests/ -q
 ```
-This runs the unit, integration, and contract tests (96 test cases).
 
-## API Overview
-- `POST /api/v1/sessions` - Convene a new deliberation session.
-- `GET /api/v1/sessions` - List deliberation sessions for the authenticated user.
-- `GET /api/v1/sessions/{session_id}` - Retrieve details and state of a session.
-- `GET /api/v1/sessions/{session_id}/stream` - SSE stream of live orchestration states.
-- `POST /api/v1/providers` - Encrypt and store an LLM provider API key.
-- `GET /api/v1/providers` - List configured LLM provider key metadata.
-- `DELETE /api/v1/providers/{provider}` - Remove an LLM provider key.
-- `POST /api/v1/providers/{provider}/test` - Perform a 1-token ping test using a raw API key.
-- `GET /api/v1/providers/{provider}/models` - Retrieve live catalogue of available models.
-- `POST /api/v1/research/keys` - Store an encrypted research provider key.
-- `GET /api/v1/research/keys` - List configured research provider keys.
-- `DELETE /api/v1/research/keys/{provider}` - Remove a research provider key.
-- `POST /api/v1/research/keys/{provider}/test` - Test validation of research credentials.
-- `POST /api/v1/notion/connect` - Initiates Notion OAuth redirect URL compilation.
-- `GET /api/v1/notion/status` - Check Notion integration status.
-- `DELETE /api/v1/notion/disconnect` - Disconnect Notion integration.
-- `POST /api/v1/notion/publish/{session_id}` - Manually publish a session report to Notion.
-- `GET /api/v1/observability/trace/{trace_id}/url` - Get the LangSmith trace URL for a session.
+As of the last run: **155 passed, 0 failed, 1 cosmetic warning** (an unawaited `AsyncMock` coroutine in one identity test — not a functional issue).
 
-## Known Limitations & Discrepancies
-- **Database Column Discrepancy:** The database mapping for `ProviderKeyModel` utilizes `ciphertext_b64` to store encrypted API keys. However, the custom Notion and Research integration routers (`notion.py` and `research.py`) reference `encrypted_key`, `label`, and `is_verified` attributes, which are absent from the core SQLAlchemy model declaration.
-- **Single-operator sessions:** Sessions are single-user only (no real-time multi-user collaboration).
-- **Text-only queries:** No multimodal support in the current stage.
+## API Reference
+
+See [docs/api-contract.md](docs/api-contract.md).
+
+## Known Limitations
+
+- **No Alembic migrations.** `alembic.ini` and any migrations directory have been removed from the repo. Schema creation only happens via `Base.metadata.create_all` in development; there is currently no supported production migration path.
+- **Langfuse tracing is unimplemented.** `app/adapters/observability/langfuse_tracer.py` is an empty file — no `LangfuseTracer` class exists anywhere in the codebase, despite `LANGFUSE_*` settings and a frontend API client method (`saveLangfuseKeys`) that has no UI consumer. LangSmith is the only working tracer.
+- **Single-operator sessions only** — no real-time multi-user collaboration on a session.
+- **Text-only queries** — no voice or image/multimodal input.
+- **Only two LLM providers are actually wired up**: OpenRouter and NVIDIA NIM. GitHub Models is not implemented (`ProviderAdapterFactory` does not support it, despite a stale docstring mentioning it).
+- **The `/settings/integrations` page is orphaned from navigation** — it exists and works (research provider keys, Notion connect) but has no link from the main app nav or the settings sub-nav; it's reachable only via direct URL or the post-OAuth redirect.
+- **Two dead orchestration code paths exist but aren't executed**: `app/orchestration/nodes/archive.py` (`archive_node`) is superseded by `notion_archivist_node.py` and is never wired into the graph; `sessions.py` defines an `_emit_terminal` SSE helper with no call site.
 
 ## License
-Refer to license files or headers where applicable.
+
+Not confirmed — no LICENSE file exists in the repository. Verify before publishing.

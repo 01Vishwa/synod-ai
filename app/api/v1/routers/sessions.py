@@ -6,12 +6,13 @@ Endpoints to create, list, retrieve, and stream Council sessions.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 import uuid
 from typing import Any, AsyncGenerator
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
@@ -22,6 +23,13 @@ from app.api.v1.schemas.sessions import (
     SessionCreateRequest,
     SessionListResponse,
     SessionResponse,
+)
+from app.core.config import settings
+from app.core.event_bus import (
+    SessionCompleted,
+    SessionEvent,
+    SessionFailed,
+    get_bus,
 )
 from app.domain.council_state import CouncilState
 from app.orchestration.runner import run_council_graph
@@ -52,6 +60,24 @@ _STATE_DELTA_EXCLUDE = frozenset({"anonymization_map", "user_id", "_execution_st
 def _safe_state_delta(state: CouncilState) -> dict[str, Any]:
     """Return a copy of state with server-only fields stripped."""
     return {k: v for k, v in state.items() if k not in _STATE_DELTA_EXCLUDE}
+
+
+# Alias used by the event-bus streaming path.
+_safe_state_snapshot = _safe_state_delta
+
+
+def _event_to_sse(event: SessionEvent) -> dict[str, str]:
+    """Convert a typed SessionEvent dataclass to an SSE-formatted dict.
+
+    ``dataclasses.asdict`` does not include ClassVar fields, so we inject
+    ``event_type`` manually from the class attribute before serialising.
+    """
+    payload = dataclasses.asdict(event)
+    payload["event_type"] = event.event_type  # ClassVar — not picked up by asdict
+    return _sse_event(
+        event_type=event.event_type,
+        data=payload,
+    )
 
 
 @router.post("", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
@@ -291,6 +317,7 @@ async def list_sessions(
 
     # We don't have a count query in the current repo interface, so we return a simplified total
     # For a real implementation, we'd add a `count_sessions` method to the repository.
+    has_more = len(states) == limit
     return SessionListResponse(
         items=[
             {
@@ -308,7 +335,7 @@ async def list_sessions(
             }
             for s in states
         ],
-        total=offset + len(states) + (1 if len(states) == limit else 0),
+        has_more=has_more,
         limit=limit,
         offset=offset,
     )
@@ -333,21 +360,16 @@ async def get_session(
 async def stream_session(
     session_id: str,
     user_id: CurrentUserIdSse,
+    request: Request,
 ) -> EventSourceResponse:
     """
     Server-Sent Events (SSE) endpoint for live council updates.
 
-    Polls the session repository every 500 ms and emits typed SSE events:
-      - ``state_delta``           — emitted on every stage transition
-      - ``dashboard_spec_update`` — emitted whenever dashboard_spec changes
-      - ``session.failed``        — emitted when the session reaches stage=error
-      - ``session.completed``     — emitted when the session reaches stage=done
-      - ``session.stream_timeout``— emitted when SSE max idle time is reached
-      - ``done``                  — emitted on any terminal condition (legacy compat)
+    Live path (bus active): drains the in-memory SessionEventBus and emits
+    typed events in real-time as each LLM token arrives — no DB polling.
 
-    Design: Each polling cycle opens and closes its own short-lived DB session
-    so we never hold a single SQLAlchemy transaction open for 5 minutes. This
-    prevents connection pool exhaustion and avoids stale transaction reads.
+    Fallback path (bus absent): polls DB every 5 s for up to 5 min. Handles
+    late subscribers, page-refresh after completion, and network-drop reconnects.
 
     SSE Auth: The JWT is passed via ?token= query parameter because the browser's
     native EventSource API cannot attach custom headers. The token is verified via
@@ -364,137 +386,113 @@ async def stream_session(
     if not initial:
         raise HTTPException(status_code=404, detail="Session not found.")
 
-    async def event_generator() -> AsyncGenerator[dict[str, Any], None]:
-        _INITIAL_POLL_SECS = 2.0
-        _MAX_POLL_SECS = 10.0
-        _MAX_IDLE_TIME_SECS = 300.0   # 5 minutes max wait
+    return EventSourceResponse(_stream_events(session_id, user_id, request))
+
+
+async def _stream_events(
+    session_id: str,
+    user_id: str,
+    request: Request,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """
+    SSE event generator — event-bus drain with DB-poll fallback.
+
+    Live path:
+        If a SessionEventBus exists for this session (i.e. the orchestrator is
+        running), subscribe to it and yield each event in real-time.  The stream
+        closes cleanly when SessionCompleted or SessionFailed arrives.
+
+    Fallback path:
+        If no bus exists (session already finished, late reconnect, or bus not
+        yet created), poll the DB every 5 s for up to 5 minutes.  Yields a final
+        state_snapshot when the session reaches a terminal stage, then closes.
+    """
+    # ── 1. Initial state snapshot — always sent immediately ──────────────
+    async with async_session_factory() as snap_session:
+        repo = PostgresSessionRepository(snap_session)
+        initial_state = await repo.load(session_id, user_id=user_id)
+
+    if not initial_state:
+        yield _sse_event("error", {"message": "Session not found"})
+        return
+
+    yield _sse_event("state_snapshot", _safe_state_snapshot(initial_state))
+
+    # ── 2. Choose streaming path based on bus availability ───────────────
+    bus = await get_bus(session_id)
+
+    if bus is not None:
+        # ── Live streaming path — event bus is active (session running) ──
+        logger.info(
+            "_stream_events: bus found for %s — switching to live event-bus drain",
+            session_id,
+        )
+        try:
+            async for event in bus.subscribe():
+                if await request.is_disconnected():
+                    logger.info(
+                        "_stream_events: client disconnected from session %s", session_id
+                    )
+                    return
+                yield _event_to_sse(event)
+                if isinstance(event, (SessionCompleted, SessionFailed)):
+                    logger.info(
+                        "_stream_events: terminal event %s received for session %s — closing",
+                        event.event_type,
+                        session_id,
+                    )
+                    return  # stream complete
+        except asyncio.CancelledError:
+            logger.info(
+                "_stream_events: cancelled for session %s", session_id
+            )
+            return
+
+    else:
+        # ── Fallback path — no bus (session complete / late subscriber) ──
+        # Poll DB at a relaxed interval — no urgency since real-time delivery
+        # is impossible here.  5 s keeps DB load minimal while still surfacing
+        # the terminal state promptly after a reconnect.
+        logger.info(
+            "_stream_events: no bus for %s — using DB-poll fallback (5 s interval)",
+            session_id,
+        )
         _TERMINAL_STAGES = {"done", "error"}
+        poll_interval = 5.0
+        idle_secs = 0.0
+        max_idle = 300.0
 
-        prev_stage: str = ""
-        prev_dashboard_spec: Any = _SENTINEL
-
-        current_poll_interval = _INITIAL_POLL_SECS
-        idle_time_secs = 0.0
-
-        # Emit initial state so the client has a starting snapshot.
-        # Each load uses a fresh short-lived session — no long-lived transaction.
-        async with async_session_factory() as poll_session:
-            repo = PostgresSessionRepository(poll_session)
-            snapshot = await repo.load(session_id, user_id=user_id)
-
-        if snapshot:
-            yield _sse_event("state_delta", _safe_state_delta(snapshot))
-            prev_stage = snapshot.get("stage", "")
-            prev_dashboard_spec = snapshot.get("dashboard_spec")
-
-            # If the session was already terminal on first load, emit and exit.
-            if prev_stage in _TERMINAL_STAGES:
-                for ev in _emit_terminal(snapshot, prev_stage):
-                    yield ev
+        while idle_secs < max_idle:
+            if await request.is_disconnected():
                 return
+            await asyncio.sleep(poll_interval)
+            idle_secs += poll_interval
 
-        while idle_time_secs < _MAX_IDLE_TIME_SECS:
-            await asyncio.sleep(current_poll_interval)
-
-            # ── Short-lived session per poll ──────────────────────────────
-            # We open and close a new session for every poll cycle.
-            # This avoids holding a DB connection open for the full 5-minute
-            # SSE lifetime and ensures we always read the latest committed data.
             try:
                 async with async_session_factory() as poll_session:
                     repo = PostgresSessionRepository(poll_session)
                     state = await repo.load(session_id, user_id=user_id)
             except asyncio.CancelledError:
-                logger.info("stream_session: connection cancelled by client for %s", session_id)
-                raise
+                logger.info(
+                    "_stream_events: cancelled (fallback path) for session %s", session_id
+                )
+                return
             except Exception as exc:
                 logger.warning(
-                    "stream_session: repo.load failed for %s: %s", session_id, exc
+                    "_stream_events: repo.load failed for %s: %s", session_id, exc
                 )
-                idle_time_secs += current_poll_interval
-                current_poll_interval = min(current_poll_interval * 1.5, _MAX_POLL_SECS)
                 continue
 
-            if not state:
-                idle_time_secs += current_poll_interval
-                current_poll_interval = min(current_poll_interval * 1.5, _MAX_POLL_SECS)
-                continue
-
-            current_stage: str = state.get("stage", "")
-            current_spec: Any = state.get("dashboard_spec")
-
-            state_changed = (current_stage != prev_stage) or (current_spec != prev_dashboard_spec)
-
-            # ── Stage change → emit state_delta ──────────────────────────
-            if current_stage != prev_stage:
-                logger.debug(
-                    "stream_session: stage transition %s → %s for session %s",
-                    prev_stage,
-                    current_stage,
-                    session_id,
-                )
-                yield _sse_event("state_delta", _safe_state_delta(state))
-                prev_stage = current_stage
-
-            # ── dashboard_spec changed → emit dashboard_spec_update ───────
-            if current_spec != prev_dashboard_spec:
-                if current_spec is not None:
-                    logger.info(
-                        "stream_session: dashboard_spec_update for session %s "
-                        "(widgets=%d)",
-                        session_id,
-                        len(current_spec.get("elements", {})),
-                    )
-                    yield _sse_event(
-                        "dashboard_spec_update",
-                        {"dashboard_spec": current_spec},
-                    )
-                prev_dashboard_spec = current_spec
-
-            if state_changed:
-                idle_time_secs = 0.0
-                current_poll_interval = _INITIAL_POLL_SECS  # reset backoff on activity
-            else:
-                idle_time_secs += current_poll_interval
-                current_poll_interval = min(current_poll_interval * 1.5, _MAX_POLL_SECS)
-
-            # ── Terminal stage → emit structured terminal event and close ──
-            if current_stage in _TERMINAL_STAGES:
-                logger.info(
-                    "stream_session: session %s reached terminal stage '%s' — closing SSE",
-                    session_id,
-                    current_stage,
-                )
-                for ev in _emit_terminal(state, current_stage):
-                    yield ev
+            if state and state.get("stage") in _TERMINAL_STAGES:
+                yield _sse_event("state_snapshot", _safe_state_snapshot(state))
                 return
 
-        # ── Max idle cap reached ──────────────────────────────────────────
-        # The session is still running (or stuck). Emit a structured timeout
-        # event so the frontend can show an error instead of an infinite spinner.
+        # Max idle reached — session is stuck or very slow
         logger.warning(
-            "stream_session: max idle time reached for session %s — closing SSE",
+            "_stream_events: fallback idle timeout for session %s — closing SSE",
             session_id,
         )
-        yield _sse_event(
-            "session.stream_timeout",
-            {
-                "session_id": session_id,
-                "stage": prev_stage or "stage_1",
-                "error": {
-                    "code": "STREAM_TIMEOUT",
-                    "message": (
-                        "The session stream timed out waiting for a state change. "
-                        "The background worker may have failed silently. "
-                        "Reload the page to see the latest session state."
-                    ),
-                },
-            },
-        )
-        # Also emit the legacy done event for backwards compat
-        yield _sse_event("done", {"status": "timeout"})
-
-    return EventSourceResponse(event_generator())
+        yield _sse_event("timeout", {"message": "Stream idle timeout"})
 
 
 def _emit_terminal(state: dict[str, Any], stage: str) -> list[dict[str, str]]:
@@ -551,7 +549,7 @@ def _emit_terminal(state: dict[str, Any], stage: str) -> list[dict[str, str]]:
     return events
 
 
-@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_session(
     session_id: str,
     user_id: CurrentUserId,

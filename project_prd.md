@@ -1,3 +1,41 @@
+# Implementation Status (as of current build)
+
+*This section was added by an audit of the actual codebase; it does not modify the original PRD text below the horizontal rule.*
+
+## What Is Built and Working
+
+- **Multi-model Stage 1 fan-out** — `app/orchestration/graph.py`'s `route_stage_1` dispatches one parallel LangGraph `Send("stage_1_draft", ...)` per configured council member (3–6 members).
+- **Blind peer review (Stage 2)** — `route_stage_2` fans out one `Send("stage_2_review", ...)` per member that survived Stage 1, each reviewing a uniquely shuffled, anonymized bundle of the others' answers (`build_anonymization_map`, `shuffle_responses_for_reviewer`).
+- **Chairman synthesis (Stage 3)** — `stage_3_node`, with a documented fallback policy (`validate_chairman`) if the pinned chairman failed in Stage 1.
+- **OpenRouter provider** — confirmed real, working `ProviderAdapter` implementation (`app/adapters/llm_providers/openrouter_adapter.py`).
+- **NVIDIA NIM provider** — confirmed real, working `ProviderAdapter` implementation (`app/adapters/llm_providers/nvidia_nim_adapter.py`).
+- **SSE streaming with an event bus** — `app/core/event_bus.py` + `GET /sessions/{id}/stream`; 12 of 15 defined event types are actually published by orchestration nodes today.
+- **KeyVault encryption** — Fernet-based (`app/adapters/security/key_vault.py`), used for all stored provider/research/Notion credentials; no plaintext key is ever persisted.
+- **Supabase Auth + JWT verification** — `app/api/v1/deps.py` verifies Supabase-issued JWTs (ES256/JWKS) on every protected route; RLS context is set best-effort as a secondary layer, with application-level `user_id` filtering as the primary tenant-isolation mechanism.
+- **Research providers** — both Tavily and Anakin have real, working `ResearchProviderAdapter` implementations (`app/adapters/research_providers/`), though the Anakin adapter's base URL is flagged in its own source comment as provisional/unconfirmed.
+- **Notion integration** — OAuth connect/callback/status/disconnect and publish-on-completion are implemented (`app/api/v1/routers/notion.py`, `notion_archivist_node.py`); the settings page for it exists but is not linked from any app navigation.
+- **Settings pages that exist**: `/settings/providers` (linked in nav), `/settings/appearance` (linked in nav), `/settings/integrations` (exists, functional, **not linked** in nav), `/settings/notion/callback` (OAuth redirect target only).
+
+## What Is Explicitly Out of Scope (v1)
+
+Still not implemented, per the original PRD's non-goals:
+- Fine-tuning or self-hosting model weights.
+- Arbitrary/self-hosted model endpoints outside the supported provider list.
+- Real-time multi-user collaboration on a single session (sessions remain single-operator).
+- Voice or image/multimodal input (queries remain text-only).
+- A self-built web-search index (Tavily/Anakin remain the only research paths).
+
+## Deviations From Original PRD
+
+- **GitHub Models was removed as a provider.** The original PRD's Goal G4 named OpenRouter, NVIDIA NIM, and GitHub Models as the three supported providers. Only OpenRouter and NVIDIA NIM are implemented in `ProviderAdapterFactory`; GitHub Models does not exist as a working adapter (a stale docstring in `factory.py` still mentions it).
+- **The json-render dashboard spec (Goal G9) is implemented**, via `dashboard_builder_node` producing a `dashboard_spec` (root + `RankBar`/`MetricCard`/`TokenTable`/`SourceList` elements), rendered by the frontend's `@json-render/core`/`@json-render/react` integration (`frontend/src/components/dashboard/`).
+- **Alembic (referenced throughout the original PRD's data/persistence sections) is not present.** `alembic.ini` and any migrations directory have been removed from the repository; the only schema-creation path remaining is a dev-only `Base.metadata.create_all` call.
+- **LangSmith was added as the primary observability implementation, not merely an alternative to Langfuse.** The original PRD specified Langfuse (Goal G7); in the current codebase, LangSmith (`app/adapters/observability/langsmith_tracer.py`) is the only tracer that actually works — the Langfuse adapter file exists but is empty, with no implementation behind the Langfuse config fields.
+- **Citations (Goal G3, "cites which sub-answers it drew from") are not implemented.** `CouncilState.citations` and `SessionResponse.citations` always return `[]`; there is no citation-extraction logic in `stage_3_node`.
+- **A dead alternate Notion-archiving code path exists** (`app/orchestration/nodes/archive.py`) alongside the one actually used (`notion_archivist_node.py`) — not a deviation in behavior, but worth noting as leftover code from a prior iteration.
+
+---
+
 # SYNOD
 ### *Where Models Convene, Truth Concludes.*
 

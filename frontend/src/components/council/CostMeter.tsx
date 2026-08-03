@@ -1,11 +1,7 @@
 'use client';
 
-/**
- * CostMeter — always-visible cost meter for active sessions.
- * Displays running token spend in the user's provider currency.
- */
-
 import React from 'react';
+import { MetricCard } from '@/components/ui/MetricCard';
 
 interface CostMeterProps {
   totalCostUsd: number;
@@ -27,46 +23,29 @@ function formatTokens(n: number): string {
 }
 
 export function CostMeter({ totalCostUsd, totalTokens, stage }: CostMeterProps) {
+  const isRunning = stage && stage !== 'done' && stage !== 'error';
+
   return (
-    <div
-      role="status"
-      aria-label={`Session cost: ${formatCost(totalCostUsd)}, tokens used: ${formatTokens(totalTokens)}`}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 'var(--space-4)',
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-sm)',
-        padding: 'var(--space-1) var(--space-3)',
-        fontFamily: 'var(--font-mono)',
-        fontSize: 'var(--text-xs)',
-        background: 'var(--color-bg-subtle)',
-      }}
-    >
-      {stage && stage !== 'done' && stage !== 'error' && (
-        <span
-          style={{ color: 'var(--color-text-subtle)' }}
-          aria-live="polite"
-        >
-          ◌
-        </span>
-      )}
-      <span title="Estimated cost this session">
-        <span style={{ color: 'var(--color-text-subtle)' }}>Cost </span>
-        <strong style={{ color: 'var(--color-text)' }}>{formatCost(totalCostUsd)}</strong>
-      </span>
-      <span
-        style={{
-          width: '1px',
-          height: '12px',
-          background: 'var(--color-border)',
-          display: 'inline-block',
-        }}
+    <div className="flex flex-wrap gap-4" aria-label={`Session cost: ${formatCost(totalCostUsd)}, tokens used: ${formatTokens(totalTokens)}`}>
+      <MetricCard
+        label="Total Cost"
+        value={formatCost(totalCostUsd)}
+        icon={
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        }
       />
-      <span title="Total tokens used">
-        <span style={{ color: 'var(--color-text-subtle)' }}>Tokens </span>
-        <strong style={{ color: 'var(--color-text)' }}>{formatTokens(totalTokens)}</strong>
-      </span>
+      <MetricCard
+        label="Tokens"
+        value={formatTokens(totalTokens)}
+        icon={
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        }
+        subValue={isRunning ? <span className="animate-pulse text-primary font-bold">◌</span> : null}
+      />
     </div>
   );
 }

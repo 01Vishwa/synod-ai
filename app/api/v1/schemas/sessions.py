@@ -58,6 +58,21 @@ class CouncilMemberConfigSchema(BaseModel):
     )
 
 
+NVIDIA_NIM_ALLOWED_PREFIXES = (
+    "meta/",
+    "nvidia/",
+    "mistralai/",
+    "google/",
+    "microsoft/",
+    "deepseek/",
+    "qwen/",
+    "writer/",
+    "baichuan/",
+    "aisingapore/",
+    "snowflake/",
+    "tokyotech-llm/",
+)
+
 class SessionCreateRequest(BaseModel):
     """
     POST /api/v1/sessions — start a new council deliberation.
@@ -72,7 +87,7 @@ class SessionCreateRequest(BaseModel):
     )
     members: list[CouncilMemberConfigSchema] = Field(
         description="3–6 council members",
-        min_length=2,
+        min_length=3,
         max_length=6,
     )
     research_enabled: bool = Field(
@@ -87,12 +102,6 @@ class SessionCreateRequest(BaseModel):
     chairman_member_id: Optional[str] = Field(
         default=None,
         description="member_id of the model to designate as Chairman unconditionally",
-    )
-    # Idempotency key — duplicate requests with the same key return the existing session
-    idempotency_key: Optional[str] = Field(
-        default=None,
-        description="Client-supplied idempotency key to prevent duplicate billing",
-        max_length=128,
     )
     # Notion archiving
     archive_to_notion: bool = Field(
@@ -135,6 +144,20 @@ class SessionCreateRequest(BaseModel):
                 raise ValueError("A member cannot have the 'chairman' role if chairman_member_id is not set.")
         return self
 
+    @model_validator(mode="after")
+    def validate_model_provider_compatibility(self) -> "SessionCreateRequest":
+        for member in self.members:
+            if member.provider == "nvidia_nim":
+                if not member.model_id.startswith(NVIDIA_NIM_ALLOWED_PREFIXES):
+                    raise ValueError(
+                        f"Member '{member.display_label}': model "
+                        f"'{member.model_id}' is not available on NVIDIA NIM. "
+                        f"NVIDIA NIM models must start with one of: "
+                        f"{', '.join(p.rstrip('/') for p in NVIDIA_NIM_ALLOWED_PREFIXES)}. "
+                        f"Check the NVIDIA NIM catalog at build.nvidia.com."
+                    )
+        return self
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -168,6 +191,7 @@ class MemberResponseSchema(BaseModel):
     tokens_out: int
     cost_usd: float
     error: Optional[str] = None
+    error_class: Optional[str] = None
 
 
 class RankingEntrySchema(BaseModel):
@@ -233,6 +257,6 @@ class SessionSummary(BaseModel):
 
 class SessionListResponse(BaseModel):
     items: list[SessionSummary]
-    total: int
+    has_more: bool
     limit: int
     offset: int

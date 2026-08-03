@@ -73,9 +73,19 @@ class Settings(BaseSettings):
 
     # ── SSE streaming ────────────────────────────────────────────────────────
     SSE_POLL_INTERVAL_SECONDS: float = 0.5    # how often event_generator polls the DB
+    SSE_MAX_POLL_SECONDS: float = 10.0        # backoff ceiling for the poll interval
     SSE_MAX_DURATION_SECONDS: float = 300.0   # hard wall-clock cap (5 minutes)
     SSE_PING_INTERVAL_SECONDS: float = 15.0   # sse_starlette keepalive ping cadence
     SSE_SEND_TIMEOUT_SECONDS: float = 300.0   # sse_starlette per-send timeout
+
+    # ── OpenRouter ───────────────────────────────────────────────────────────
+    # Model used for the 1-token validation ping in validate_key().
+    # gpt-4o-mini is OpenRouter's most stable, cheapest always-available model.
+    OPENROUTER_VALIDATION_MODEL: str = "openai/gpt-4o-mini"
+
+    # ── NVIDIA NIM ───────────────────────────────────────────────────────────
+    # Model used for the 1-token validation ping in validate_key().
+    NVIDIA_NIM_VALIDATION_MODEL: str = "meta/llama-3.1-8b-instruct"
 
     # ── Database pool settings ───────────────────────────────────────────────
     DB_POOL_SIZE: int = 10
@@ -88,6 +98,27 @@ class Settings(BaseSettings):
         """Accept a comma-separated string or a list from .env."""
         if isinstance(v, str):
             return [o.strip() for o in v.split(",") if o.strip()]
+        return v
+
+    @field_validator("CREDENTIAL_ENCRYPTION_KEY", mode="after")
+    @classmethod
+    def _validate_encryption_key(cls, v: str, info) -> str:
+        env = (info.data or {}).get("ENVIRONMENT", "development")
+        if not v and env.lower() != "development":
+            raise ValueError(
+                "CREDENTIAL_ENCRYPTION_KEY must be set in non-development environments. "
+                "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+            )
+        return v
+
+    @field_validator("SUPABASE_URL", mode="after")
+    @classmethod
+    def _validate_supabase_url(cls, v: str, info) -> str:
+        env = (info.data or {}).get("ENVIRONMENT", "development")
+        if not v and env.lower() != "development":
+            raise ValueError(
+                "SUPABASE_URL must be set in non-development environments."
+            )
         return v
 
     @property

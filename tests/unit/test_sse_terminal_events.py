@@ -189,7 +189,7 @@ async def test_sse_emits_stream_timeout_on_idle_cap():
 
 
 @pytest.mark.asyncio
-async def test_sse_short_lived_sessions_per_poll():
+async def test_sse_short_lived_sessions_mock_setup():
     """
     Each SSE poll cycle must open and close its own DB session.
     Verify that multiple factory calls are made (not a single long-lived session).

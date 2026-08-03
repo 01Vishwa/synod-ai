@@ -29,9 +29,10 @@ Pattern: Decorator (retry wraps adapter call), Proxy (router is transparent
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 import tenacity
+from cachetools import TTLCache
 from tenacity import (
     retry_if_exception,
     stop_after_attempt,
@@ -49,9 +50,13 @@ from app.core.exceptions import (
     RateLimitError,
     UpstreamTimeoutError,
 )
+from app.domain.council_state import CouncilMemberConfig
 from app.domain.ports.provider_adapter import ChatMessage, ChatResponse
 
 logger = logging.getLogger(__name__)
+
+_AUTH_FAILURE_CACHE_MAX = 1024
+_AUTH_FAILURE_TTL_SECONDS = 600  # 10 minutes
 
 
 # ── Retry predicate ────────────────────────────────────────────────────────────
@@ -103,8 +108,10 @@ class LLMRouter:
                           Defaults to 3 (matches settings.COUNCIL_MEMBER_MAX_RETRIES + 1).
         """
         self._max_attempts = max_attempts
-        # run-scoped provider auth failures: (session_id, provider) -> AuthenticationError
-        self._auth_failures: dict[tuple[str, str], AuthenticationError] = {}
+        self._auth_failures: TTLCache[tuple[str, str, str], AuthenticationError] = TTLCache(
+            maxsize=_AUTH_FAILURE_CACHE_MAX,
+            ttl=_AUTH_FAILURE_TTL_SECONDS,
+        )
         logger.info("LLMRouter initialised (max_attempts=%d).", max_attempts)
 
     async def chat(
@@ -146,13 +153,14 @@ class LLMRouter:
             FallbackExhaustedError — all retry attempts exhausted.
         """
         # Run-scoped auth fail-fast
-        if session_id and (session_id, provider) in self._auth_failures:
+        if session_id and (session_id, provider, model_id) in self._auth_failures:
             logger.warning(
-                "LLMRouter: Fast-failing request for provider '%s' (session '%s') due to previous auth failure.",
+                "LLMRouter: Fast-failing request for provider '%s' model '%s' (session '%s') due to previous auth failure.",
                 provider,
+                model_id,
                 session_id,
             )
-            raise self._auth_failures[(session_id, provider)]
+            raise self._auth_failures[(session_id, provider, model_id)]
 
         breaker = await get_breaker(user_id=user_id, provider=provider)
         adapter = ProviderAdapterFactory.create(provider)
@@ -193,11 +201,9 @@ class LLMRouter:
                 user_id,
             )
             if session_id:
-                self._auth_failures[(session_id, provider)] = exc
+                self._auth_failures[(session_id, provider, model_id)] = exc
 
-            # Mark user provider credential invalid in DB
-            import asyncio
-            asyncio.create_task(self._mark_user_provider_credential_invalid(user_id, provider, str(exc)))
+            await self._mark_user_provider_credential_invalid(user_id, provider, str(exc))
             raise
         except CircuitOpenError:
             logger.warning(
@@ -243,6 +249,144 @@ class LLMRouter:
                 result.latency_ms,
             )
             return result
+
+    async def stream_chat(
+        self,
+        member_config: CouncilMemberConfig,
+        messages: list[ChatMessage],
+        user_id: str,
+        api_key: str,
+        *,
+        timeout_s: int = 60,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        session_id: str = "",
+    ) -> AsyncGenerator[str, None]:
+        """
+        Stream token deltas from the provider, applying the same circuit-breaker
+        and auth-failure gating as chat().
+
+        Key differences from chat():
+          - No tenacity retry: streaming is inherently single-attempt.  A partial
+            stream cannot be rewound and replayed from the beginning, so retrying
+            would deliver duplicate or truncated content to the caller.
+          - Circuit breaker failures are recorded explicitly via
+            _record_stream_failure() rather than via breaker.call(), because the
+            asyncio.Lock inside CircuitBreaker cannot be held across yield points.
+
+        Args:
+            member_config: Council member configuration dict (provider, model_id, etc.).
+            messages:      Conversation messages to send.
+            user_id:       Stable user identifier for circuit-breaker bucketing.
+            api_key:       Decrypted API key — never stored by the router.
+            timeout_s:     Per-call HTTP timeout in seconds.
+            temperature:   Sampling temperature.
+            max_tokens:    Optional hard token ceiling.
+            session_id:    Run-scoped session identifier for auth fast-fail.
+
+        Yields:
+            str — each non-empty token delta from the provider, in order.
+
+        Raises:
+            AuthenticationError — key rejected; never retried; cached for session.
+            CircuitOpenError    — breaker is OPEN; stream not attempted.
+            ProviderError       — non-retryable provider failure mid-stream.
+            UpstreamTimeoutError — stream timed out.
+        """
+        provider: str = member_config["provider"]
+        model_id: str = member_config["model_id"]
+
+        # ── 1. Run-scoped auth fail-fast ────────────────────────────────
+        if session_id and (session_id, provider, model_id) in self._auth_failures:
+            logger.warning(
+                "LLMRouter.stream_chat: fast-failing provider '%s' model '%s' (session '%s') "
+                "due to previous auth failure.",
+                provider,
+                model_id,
+                session_id,
+            )
+            raise self._auth_failures[(session_id, provider, model_id)]
+
+        # ── 2. Circuit-breaker gate (read-only check — no lock held across yields) ─
+        breaker = await get_breaker(user_id=user_id, provider=provider)
+        # Manually inspect state rather than calling breaker.call() so we never
+        # hold the breaker's asyncio.Lock across a yield point.
+        async with breaker._lock:
+            await breaker._maybe_recover()
+            from app.core.circuit_breaker import CircuitState
+            if breaker.state == CircuitState.OPEN:
+                raise CircuitOpenError(provider=provider)
+
+        # ── 3. Resolve adapter ──────────────────────────────────────────
+        adapter = ProviderAdapterFactory.create(provider)
+
+        # ── 4. Stream, recording failures to the breaker on error ───────
+        try:
+            async for delta in adapter.stream_chat(
+                messages=messages,
+                model_id=model_id,
+                api_key=api_key,
+                timeout_s=timeout_s,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            ):
+                yield delta
+        except AuthenticationError as exc:
+            # Auth errors are not retried and do NOT trip the circuit breaker.
+            logger.error(
+                "LLMRouter.stream_chat: AuthenticationError for provider '%s' "
+                "user '%s'. Not retrying.",
+                provider,
+                user_id,
+            )
+            if session_id:
+                self._auth_failures[(session_id, provider, model_id)] = exc
+            # Fire-and-forget DB mark (non-blocking — we must not await inside
+            # the except block of an async generator because the generator frame
+            # stays alive until GC.  Schedule as a task instead).
+            import asyncio
+            asyncio.create_task(
+                self._mark_user_provider_credential_invalid(user_id, provider, str(exc))
+            )
+            raise
+        except CircuitOpenError:
+            logger.warning(
+                "LLMRouter.stream_chat: circuit OPEN for provider '%s' (user '%s').",
+                provider,
+                user_id,
+            )
+            raise
+        except Exception as exc:
+            # Record failure in the circuit breaker so repeated stream failures
+            # can trip it toward OPEN, matching chat() behaviour.
+            await self._record_stream_failure(breaker, provider, model_id, exc)
+            raise
+        else:
+            # Successful stream completion — record success to reset failure count.
+            async with breaker._lock:
+                breaker._record_success()
+            logger.debug(
+                "LLMRouter.stream_chat: completed — provider '%s' model '%s'.",
+                provider,
+                model_id,
+            )
+
+    async def _record_stream_failure(
+        self,
+        breaker,  # CircuitBreaker — avoid import cycle in type hint
+        provider: str,
+        model_id: str,
+        exc: BaseException,
+    ) -> None:
+        """Record a stream error in the circuit breaker (mirrors chat() failure path)."""
+        async with breaker._lock:
+            breaker._record_failure()
+        logger.error(
+            "LLMRouter.stream_chat: stream error for provider '%s' model '%s': %s",
+            provider,
+            model_id,
+            exc,
+        )
 
     async def _mark_user_provider_credential_invalid(
         self,

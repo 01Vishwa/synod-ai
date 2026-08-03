@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import '@/styles/globals.css';
 import { AppShell } from '@/components/layout/AppShell';
 import { ToastProvider } from '@/components/ui/ToastProvider';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
 export const metadata: Metadata = {
   title: {
@@ -20,6 +21,7 @@ export const metadata: Metadata = {
 };
 
 import { SessionHistoryProvider } from '@/components/layout/SessionHistoryContext';
+import { ThemeProvider } from '@/components/theme/ThemeProvider';
 
 export default function RootLayout({
   children,
@@ -29,6 +31,27 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var saved = localStorage.getItem('synod_theme');
+                  var theme = saved || 'system';
+                  var isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                  if (isDark) {
+                    document.documentElement.classList.add('dark');
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                  } else {
+                    document.documentElement.classList.remove('dark');
+                    document.documentElement.setAttribute('data-theme', 'light');
+                  }
+                  document.documentElement.setAttribute('data-theme-setting', theme);
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
@@ -40,14 +63,17 @@ export default function RootLayout({
           rel="stylesheet"
         />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="color-scheme" content="light" />
       </head>
       <body>
-        <ToastProvider>
-          <SessionHistoryProvider>
-            <AppShell>{children}</AppShell>
-          </SessionHistoryProvider>
-        </ToastProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            <SessionHistoryProvider>
+              <ErrorBoundary>
+                <AppShell>{children}</AppShell>
+              </ErrorBoundary>
+            </SessionHistoryProvider>
+          </ToastProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

@@ -41,6 +41,7 @@ class MemberResponse(TypedDict):
     tokens_out: int
     cost_usd: float
     error: Optional[str]                    # set if this member errored
+    error_class: Optional[str]              # the specific class of the error (e.g. AuthenticationError)
 
 
 class RankingEntry(TypedDict):
