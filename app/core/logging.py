@@ -17,11 +17,8 @@ import json
 import logging
 import time
 import uuid
-from typing import Callable
-
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 
 # ── JSON formatter ─────────────────────────────────────────────────────────
@@ -93,21 +90,26 @@ def setup_logging(level: int = logging.INFO) -> None:
 
 # ── Request-lifecycle middleware ───────────────────────────────────────────
 
-class LoggingMiddleware(BaseHTTPMiddleware):
+class LoggingMiddleware:
     """
-    Middleware that wraps every HTTP request with:
-        1. A UUID request_id attached to response headers (X-Request-ID).
-        2. A structured INFO log on completion (method, path, status, latency).
-        3. A structured ERROR log (with exc_info) if an unhandled exception
-           bubbles up through the middleware stack.
+    Pure ASGI middleware (no BaseHTTPMiddleware) so SSE / streaming responses
+    are not buffered in memory.
 
-    The request_id is stored in a LoggerAdapter so child loggers within the
-    same request context can emit it without extra plumbing.
+    Attaches a UUID request-id, logs method/path/status/latency on completion,
+    and injects X-Request-ID into response headers.
     """
 
     _LOGGER_NAME = "synod.api"
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope, receive)
         request_id = str(uuid.uuid4())
         request.state.request_id = request_id
 
@@ -119,29 +121,40 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         method = request.method
         path = request.url.path
         start = time.perf_counter()
+        status_code = 500
+
+        async def send_wrapper(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                headers = list(message.get("headers", []))
+                headers.append((b"x-request-id", request_id.encode()))
+                message = {**message, "headers": headers}
+            await send(message)
 
         try:
-            response: Response = await call_next(request)
+            await self.app(scope, receive, send_wrapper)
             elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
-            status = response.status_code
-
             adapter.info(
-                f"{method} {path} → {status} ({elapsed_ms}ms)",
+                "%s %s → %s (%.1fms)",
+                method,
+                path,
+                status_code,
+                elapsed_ms,
                 extra={
                     "method": method,
                     "path": path,
-                    "status_code": status,
+                    "status_code": status_code,
                     "latency_ms": elapsed_ms,
                 },
             )
-
-            response.headers["X-Request-ID"] = request_id
-            return response
-
-        except Exception as exc:  # noqa: BLE001
+        except Exception:
             elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
             adapter.error(
-                f"{method} {path} → 500 ({elapsed_ms}ms) — unhandled exception",
+                "%s %s → 500 (%.1fms) — unhandled exception",
+                method,
+                path,
+                elapsed_ms,
                 extra={
                     "method": method,
                     "path": path,

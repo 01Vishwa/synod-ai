@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from langchain_core.runnables.config import RunnableConfig
@@ -376,7 +377,7 @@ async def _write_error_to_repo(
                     "stage": "system",
                     "code": "EXECUTION_FAILED",
                     "message": error_msg,
-                    "timestamp": "",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
                 error_state["errors"] = existing_errors
                 await repository.save_checkpoint(error_state)  # type: ignore[arg-type]

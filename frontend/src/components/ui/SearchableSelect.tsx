@@ -43,8 +43,8 @@ export function SearchableSelect({
   const selectedOption = options.find((opt) => opt.value === value);
   const displayLabel = selectedOption ? selectedOption.label : placeholder;
 
-  const normalizeSearch = (value: string): string => {
-    return value
+  const normalizeSearch = (val: string): string => {
+    return val
       .toLowerCase()
       .trim()
       .replace(/[\/:_-]+/g, ' ')
@@ -65,8 +65,8 @@ export function SearchableSelect({
       <button
         id={id}
         type="button"
-        className={`w-full text-left text-base sm:text-sm bg-background border rounded px-2 py-1.5 focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all flex justify-between items-center ${
-          disabled ? 'opacity-50 cursor-not-allowed bg-grey-93 border-border' : 'border-border hover:border-grey-50'
+        className={`w-full text-left text-base sm:text-sm bg-background text-foreground border rounded px-2 py-1.5 focus:border-border-strong focus:ring-2 focus:ring-foreground/10 outline-none transition-all flex justify-between items-center ${
+          disabled ? 'opacity-50 cursor-not-allowed bg-bgSubtle border-border' : 'border-border hover:border-border-strong'
         }`}
         onClick={() => {
           if (!disabled) {
@@ -88,11 +88,11 @@ export function SearchableSelect({
       </button>
 
       {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded shadow-lg overflow-hidden flex flex-col max-h-60">
-          <div className="p-2 border-b border-border sticky top-0 bg-background">
+        <div className="absolute z-50 w-full mt-1 bg-surface border border-border-strong rounded shadow-lg overflow-hidden flex flex-col max-h-60">
+          <div className="p-2 border-b border-border sticky top-0 bg-surface">
             <input
               type="text"
-              className="w-full text-sm bg-background border border-border rounded px-2 py-1.5 focus:border-black focus:ring-1 focus:ring-black outline-none"
+              className="w-full text-sm bg-background text-foreground border border-border rounded px-2 py-1.5 focus:border-border-strong focus:ring-1 focus:ring-border-strong outline-none"
               placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -107,8 +107,8 @@ export function SearchableSelect({
                 <button
                   key={opt.value}
                   type="button"
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-grey-97 transition-colors truncate ${
-                    opt.value === value ? 'bg-grey-93 font-medium' : ''
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-hover text-foreground transition-colors truncate ${
+                    opt.value === value ? 'bg-surface-secondary font-bold' : ''
                   }`}
                   onClick={() => {
                     onChange(opt.value);

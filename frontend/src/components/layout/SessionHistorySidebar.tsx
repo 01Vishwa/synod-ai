@@ -5,10 +5,11 @@
  * navigation links, and New Session CTA.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSessionHistory } from './SessionHistoryContext';
+import { StatusBadge, type StatusType } from '@/components/ui/StatusBadge';
 
 function PlusIcon() {
   return (
@@ -52,15 +53,12 @@ function formatDate(iso: string): string {
   }
 }
 
-function stageBadge(stage: string): string {
+function getSessionStatus(stage: string): StatusType {
   switch (stage) {
-    case 'done': return '✓ Done';
-    case 'stage_1': return '◌ Stage 1';
-    case 'stage_2': return '◌ Stage 2';
-    case 'stage_3': return '◌ Stage 3';
-    case 'archiving': return '◌ Archiving';
-    case 'error': return '✕ Error';
-    default: return stage;
+    case 'done': return 'completed';
+    case 'archiving': return 'running';
+    case 'error': return 'failed';
+    default: return 'running';
   }
 }
 
@@ -78,10 +76,10 @@ function NavLink({ href, children, id }: NavLinkProps) {
     <Link
       href={href}
       id={id}
-      className={`flex items-center gap-2 px-4 py-2 text-sm rounded transition-colors mx-2 no-underline
+      className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors mx-3 no-underline outline-none focus-visible:ring-2 focus-visible:ring-primary/20
         ${isActive 
-          ? 'font-semibold text-black bg-grey-93' 
-          : 'font-normal text-muted hover:bg-grey-93 hover:text-black'
+          ? 'font-bold text-foreground bg-surface-hover shadow-[inset_2px_0_0_0_var(--color-primary)]' 
+          : 'font-medium text-muted hover:bg-surface-hover hover:text-foreground'
         }`}
     >
       {children}
@@ -105,13 +103,13 @@ export function SessionHistorySidebar() {
   const isSuccess = status === 'success';
 
   return (
-    <nav aria-label="Sidebar navigation" className="flex flex-col h-full pt-4">
+    <nav aria-label="Sidebar navigation" className="flex flex-col h-full pt-4 w-full">
       {/* Primary actions */}
-      <div className="px-4 mb-4">
-        <Link href="/" className="block no-underline">
+      <div className="px-4 mb-6">
+        <Link href="/" className="block no-underline outline-none">
           <button
             id="sidebar-new-session-btn"
-            className="w-full flex items-center justify-center gap-2 bg-black text-white px-6 py-3 font-semibold text-sm rounded border-2 border-black hover:bg-grey-10 transition-colors"
+            className="w-full flex items-center justify-center gap-2 bg-primary text-primary-fg border border-primary/20 px-4 py-2.5 font-bold text-sm rounded-lg hover:bg-primary-hover transition-colors shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
           >
             <PlusIcon />
             New Session
@@ -120,7 +118,7 @@ export function SessionHistorySidebar() {
       </div>
 
       {/* Main nav */}
-      <div className="flex flex-col gap-1 mb-4">
+      <div className="flex flex-col gap-1 mb-6">
         <NavLink href="/history" id="sidebar-history-link">
           <ClockIcon />
           History
@@ -134,24 +132,21 @@ export function SessionHistorySidebar() {
         </NavLink>
       </div>
 
-      <div className="h-px bg-border mx-4 mb-4" />
+      <div className="h-px bg-border mx-4 mb-6" />
 
       {/* Recent Sessions */}
-      <div className="px-4 mb-2 flex flex-col gap-2 flex-1 overflow-hidden">
+      <div className="px-4 mb-2 flex flex-col gap-3 flex-1 overflow-hidden">
         {(isLoading || isSuccess) ? (
-          <p className="text-xs font-semibold text-subtle uppercase tracking-widest mb-1">
+          <p className="text-[10px] font-bold text-subtle uppercase tracking-widest px-1">
             Recent Sessions
           </p>
         ) : null}
 
         {/* Loading State */}
         {isLoading && (
-          <div className="overflow-y-auto flex-1 flex flex-col gap-1">
-            <p className="text-xs font-semibold text-subtle uppercase tracking-widest text-center my-4">
-              Loading Sessions...
-            </p>
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-grey-93 rounded h-[60px] animate-pulse" />
+          <div className="overflow-y-auto flex-1 flex flex-col gap-2 pb-4">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="bg-bgSubtle rounded-xl h-[72px] animate-pulse border border-border" />
             ))}
           </div>
         )}
@@ -159,7 +154,7 @@ export function SessionHistorySidebar() {
         {/* Error State */}
         {isError && (
           <div className="flex-1 flex flex-col justify-center items-center text-center p-4">
-            <p className="text-xs font-semibold text-subtle uppercase tracking-widest mb-4">
+            <p className="text-xs font-bold text-subtle uppercase tracking-widest mb-4">
               History Unavailable
             </p>
           </div>
@@ -167,8 +162,11 @@ export function SessionHistorySidebar() {
 
         {/* Empty State */}
         {isEmpty && (
-          <div className="flex-1 flex flex-col justify-center items-center text-center p-4">
-            <p className="text-xs font-semibold text-subtle uppercase tracking-widest mb-4">
+          <div className="flex-1 flex flex-col justify-center items-center text-center p-4 opacity-50">
+            <svg className="w-8 h-8 text-muted mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+            <p className="text-xs font-bold text-subtle uppercase tracking-widest">
               No previous sessions
             </p>
           </div>
@@ -178,8 +176,8 @@ export function SessionHistorySidebar() {
         {isSuccess && (
           <>
             {/* Search */}
-            <div className="relative">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-subtle pointer-events-none">
+            <div className="relative shrink-0">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-subtle pointer-events-none">
                 <SearchIcon />
               </span>
               <input
@@ -189,39 +187,44 @@ export function SessionHistorySidebar() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 aria-label="Search past sessions"
-                className="w-full pl-7 text-xs h-8 bg-background border border-border rounded focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all placeholder-subtle text-foreground"
+                className="w-full pl-9 pr-3 text-xs h-9 bg-surface border border-border rounded-lg focus:border-primary/50 focus:ring-2 focus:ring-primary/20 outline-none transition-all placeholder:text-muted text-foreground shadow-sm"
               />
             </div>
 
             {/* Session list */}
-            <div className="overflow-y-auto flex-1 flex flex-col gap-1">
+            <div className="overflow-y-auto flex-1 flex flex-col gap-2 pb-4 hide-scrollbar">
               {filtered.length === 0 && search && (
-                <div className="p-4 text-center text-xs text-subtle">
+                <div className="p-6 text-center text-xs text-subtle">
                   No sessions match your search.
                 </div>
               )}
 
               {filtered.map((session) => {
                 const isActive = pathname.includes(session.session_id);
+                const sessionStatus = getSessionStatus(session.stage);
+                
                 return (
                   <Link
                     key={session.session_id}
                     href={`/sessions/${session.session_id}`}
-                    className="no-underline"
+                    className="no-underline outline-none"
                   >
                     <div
-                      className={`px-3 py-2 rounded border transition-colors cursor-pointer
+                      className={`px-4 py-3 rounded-xl border transition-all cursor-pointer group
                         ${isActive 
-                          ? 'border-2 border-black bg-grey-93' 
-                          : 'border border-border bg-background hover:bg-grey-93/50'
+                          ? 'border-border-strong bg-surface shadow-sm' 
+                          : 'border-transparent bg-transparent hover:bg-surface-hover hover:border-border'
                         }`}
                     >
-                      <div className="text-xs font-semibold text-foreground overflow-hidden text-ellipsis whitespace-nowrap mb-1">
+                      <div className={`text-sm font-bold mb-2 line-clamp-2 leading-snug transition-colors
+                        ${isActive ? 'text-foreground' : 'text-muted group-hover:text-foreground'}`}>
                         {session.user_query}
                       </div>
-                      <div className="text-[11px] text-subtle flex justify-between">
-                        <span className="font-mono">{stageBadge(session.stage)}</span>
-                        <span>{formatDate(session.created_at)}</span>
+                      <div className="flex items-center justify-between">
+                        <StatusBadge status={sessionStatus} />
+                        <span className="text-[10px] font-mono text-muted group-hover:text-subtle transition-colors">
+                          {formatDate(session.created_at)}
+                        </span>
                       </div>
                     </div>
                   </Link>

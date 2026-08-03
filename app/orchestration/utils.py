@@ -1,12 +1,17 @@
 """
 orchestration/utils.py — Helper utilities for LangGraph nodes.
+
+Includes:
+  - fetch_decrypted_key: resolve & decrypt provider API keys from the DB.
+  - _sanitize_error:     map provider exceptions to user-friendly messages;
+                         reused by stage_1, stage_2, and stage_3 nodes.
 """
 from __future__ import annotations
 
 from sqlalchemy import select
 
 from app.adapters.persistence.models import ProviderKeyModel
-from app.core.exceptions import ProviderError
+from app.core.exceptions import AuthenticationError, ProviderError
 from app.orchestration.context import GraphDependencies
 
 
@@ -62,7 +67,56 @@ async def fetch_decrypted_key(
             provider=provider,
         ) from exc
 
+    if not decrypted or len(decrypted) < 8:
+        raise AuthenticationError(
+            message=f"Stored {provider} key is missing or corrupt. "
+            "Please re-enter your key in Settings → Providers & API Keys.",
+            provider=provider
+        )
+
     if model.last_test_ok:
         logger.info("API_KEY_RUNTIME_VALIDATION_SKIPPED_VALID_RECENT_TEST", extra=extra)
 
     return decrypted
+
+
+def _sanitize_error(exc: Exception, provider: str) -> str:
+    """
+    Convert a provider exception into a user-facing, non-technical message.
+
+    All messages omit raw tracebacks and Python internals so they are safe
+    to return in the MemberResponse.error field and surface in the UI.
+
+    Used by stage_1_node, stage_2_node, and stage_3_node.
+    """
+    from app.core.exceptions import (
+        AuthenticationError,
+        RateLimitError,
+        ProviderTimeoutError,
+        ProviderError,
+    )
+
+    if isinstance(exc, AuthenticationError):
+        return (
+            f"API credentials for {provider} were rejected. "
+            "Please update your key in Settings \u2192 Providers & API Keys."
+        )
+    if isinstance(exc, RateLimitError):
+        return (
+            f"{provider} rate limit exceeded. "
+            "This member has been excluded from ranking."
+        )
+    if isinstance(exc, ProviderTimeoutError):
+        return (
+            f"{provider} did not respond within the timeout window. "
+            "This member has been excluded from ranking."
+        )
+    if isinstance(exc, ProviderError):
+        return (
+            f"A provider error occurred with {provider}. "
+            "This member has been excluded from ranking."
+        )
+    return (
+        "An unexpected error occurred communicating with this provider. "
+        "This member has been excluded from ranking."
+    )

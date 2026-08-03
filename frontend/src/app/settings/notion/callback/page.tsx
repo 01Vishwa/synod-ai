@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function NotionCallbackPage() {
+import { Suspense } from 'react';
+
+function NotionCallbackPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
@@ -51,5 +53,17 @@ export default function NotionCallbackPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function NotionCallbackPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ padding: 'var(--space-4)', textAlign: 'center' }}>
+        <h2>Connecting Notion...</h2>
+      </div>
+    }>
+      <NotionCallbackPageInner />
+    </Suspense>
   );
 }

@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { ProviderKeyCard } from '@/components/settings/ProviderKeyCard';
 import { providersApi, type Provider, type ProviderKeyResponse } from '@/lib/api-client';
 
@@ -31,11 +30,16 @@ export default function ProvidersSettingsPage() {
     return (
       <div className="max-w-[720px] mx-auto px-6 py-8">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-[200px] mb-4 bg-grey-93 rounded-md animate-pulse" />
+          <div key={i} className="h-[200px] mb-4 bg-bgSubtle rounded-md animate-pulse" />
         ))}
       </div>
     );
   }
+
+  const handleDeleteKey = async (provider: Provider) => {
+    await providersApi.deleteKey(provider);
+    await fetchStatus();
+  };
 
   return (
     <div className="animate-fade-in">
@@ -52,6 +56,7 @@ export default function ProvidersSettingsPage() {
           description="Access hundreds of models (Anthropic, OpenAI, Meta) via a single unified API."
           providerKey={configured.openrouter}
           onUpdate={fetchStatus}
+          onDelete={handleDeleteKey}
         />
 
         <ProviderKeyCard
@@ -60,6 +65,7 @@ export default function ProvidersSettingsPage() {
           description="Enterprise-grade NVIDIA hosted models with high throughput."
           providerKey={configured.nvidia_nim}
           onUpdate={fetchStatus}
+          onDelete={handleDeleteKey}
         />
       </div>
     </div>

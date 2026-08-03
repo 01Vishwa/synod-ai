@@ -30,6 +30,7 @@ export interface MemberResponse {
   tokens_out: number;
   cost_usd: number;
   error?: string;
+  error_class?: string;
 }
 
 export interface RankingEntry {
@@ -43,6 +44,23 @@ export interface ResearchDigest {
   query_terms: string[];
   sources: Array<{ url: string; title: string; snippet: string; retrieved_at: string }>;
   summary: string;
+}
+
+export type MemberLifecycle =
+  | 'queued'
+  | 'initializing'
+  | 'connecting'
+  | 'waiting_first_token'
+  | 'streaming'
+  | 'completed'
+  | 'failed'
+  | 'timeout';
+
+export interface MemberExecutionState {
+  lifecycle: MemberLifecycle;
+  tokens_generated: number;
+  elapsed_ms: number;
+  first_token_ms?: number;
 }
 
 export interface CouncilState {
@@ -75,6 +93,11 @@ export interface CouncilState {
   successful_member_ids?: string[];
   excluded_member_ids?: string[];
   effective_chairman_id?: string;
+
+  // Client-side only — not persisted to DB
+  member_execution_states?: Record<string, MemberExecutionState>;
+  streaming_content?: Record<string, string>;   // member_id → live buffer
+  chairman_streaming_content?: string;
 }
 
 export interface ModelInfo {
@@ -132,6 +155,7 @@ export interface TestConnectionResult {
 // ─── HTTP Helper ──────────────────────────────────────────────────────────
 
 import { supabase } from '@/lib/supabase/client';
+import { mapApiError } from '@/lib/errors';
 
 async function apiFetch<T>(
   path: string,
@@ -143,7 +167,18 @@ async function apiFetch<T>(
   // triggers a token refresh if the current access_token is expired.
   // Then call getSession() to pick up the (potentially refreshed) access_token.
   await supabase.auth.getUser();
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data, error } = await supabase.auth.getSession();
+
+  if (error?.code === 'refresh_token_not_found' || error?.message?.includes('Refresh Token')) {
+    window.location.href = '/?auth=required';
+    throw new Error('Session expired');
+  }
+
+  if (error || !data.session?.access_token) {
+    throw new Error('Not authenticated');
+  }
+
+  const { session } = data;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -154,14 +189,19 @@ async function apiFetch<T>(
     headers['Authorization'] = `Bearer ${session.access_token}`;
   }
 
-  const res = await fetch(url, {
-    headers,
-    ...options,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers,
+      ...options,
+    });
+  } catch (error) {
+    throw mapApiError(error);
+  }
 
   if (!res.ok) {
     const body = await res.text();
-    throw new ApiError(res.status, res.statusText, body);
+    throw mapApiError(new ApiError(res.status, res.statusText, body));
   }
 
   if (res.status === 204) {
@@ -209,7 +249,14 @@ export const sessionsApi = {
     // pass the JWT as a query parameter instead. The backend SSE endpoint
     // accepts ?token=<jwt> via the CurrentUserIdSse dependency.
     await supabase.auth.getUser(); // refresh token if expired
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data, error } = await supabase.auth.getSession();
+
+    if (error?.code === 'refresh_token_not_found' || error?.message?.includes('Refresh Token')) {
+      window.location.href = '/?auth=required';
+      throw new Error('Session expired');
+    }
+
+    const { session } = data;
     const base = `${API_BASE}/api/v1/sessions/${sessionId}/stream`;
     return session?.access_token
       ? `${base}?token=${encodeURIComponent(session.access_token)}`
@@ -220,10 +267,11 @@ export const sessionsApi = {
 // ─── Providers ────────────────────────────────────────────────────────────
 
 export const providersApi = {
-  saveKey: (req: ProviderKeyRequest) =>
+  saveKey: (req: ProviderKeyRequest, options?: RequestInit) =>
     apiFetch<{ ok: boolean }>('/providers', {
       method: 'POST',
       body: JSON.stringify(req),
+      ...options,
     }),
 
   testConnection: (provider: Provider) =>
@@ -240,7 +288,7 @@ export const providersApi = {
   getConfiguredProviders: () =>
     apiFetch<Array<ProviderKeyResponse>>('/providers'),
 
-  revokeKey: (provider: Provider) =>
+  deleteKey: (provider: Provider) =>
     apiFetch<void>(`/providers/${provider}`, { method: 'DELETE' }),
 };
 
@@ -286,12 +334,35 @@ export const integrationsApi = {
       method: 'POST',
     }),
 
-  saveLangfuseKeys: (public_key: string, secret_key: string, host?: string) =>
+    saveLangfuseKeys: (public_key: string, secret_key: string, host?: string) =>
     apiFetch<{ ok: boolean }>('/observability/keys', {
       method: 'POST',
       body: JSON.stringify({ public_key, secret_key, host }),
     }),
 };
+
+export const researchApi = {
+  saveKey: (body: { provider: string; api_key: string }) =>
+    apiFetch<void>('/research/keys', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  testKey: (provider: string) =>
+    apiFetch<{ success: boolean; message: string }>(`/research/keys/${provider}/test`, {
+      method: 'POST',
+      body: JSON.stringify({ api_key: "dummy" }),
+    }),
+  getKeys: async () => {
+    const keys = await apiFetch<Array<{ provider: string; key_fingerprint: string; last_test_ok?: boolean }>>('/research/keys');
+    return keys.map(k => ({
+      provider: k.provider,
+      has_key: true,
+      fingerprint: k.key_fingerprint,
+      last_test_ok: k.last_test_ok,
+    }));
+  },
+};
+
 
 // ─── Observability ────────────────────────────────────────────────────────
 

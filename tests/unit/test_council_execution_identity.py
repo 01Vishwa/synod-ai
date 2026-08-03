@@ -115,6 +115,13 @@ async def test_session_creation_commits_before_scheduling_background_task():
                 "display_label": "Member 2",
                 "role": "member",
             },
+            {
+                "member_id": "member_3",
+                "provider": "openrouter",
+                "model_id": "anthropic/claude-3-haiku",
+                "display_label": "Member 3",
+                "role": "member",
+            },
         ],
         research_enabled=False,
         research_provider=None,
@@ -314,7 +321,7 @@ def test_route_stage_1_fan_out_preserves_user_id():
         "user_id": VALID_USER_ID,
     }
 
-    from langgraph.constants import Send
+    from langgraph.types import Send
     tasks = route_stage_1(state)  # type: ignore[arg-type]
 
     assert len(tasks) == 1
@@ -384,7 +391,7 @@ def test_route_stage_2_fan_out_preserves_user_id():
         "stage_1_responses": [anon_resp],
     }
 
-    from langgraph.constants import Send
+    from langgraph.types import Send
     tasks = route_stage_2(state)  # type: ignore[arg-type]
 
     assert len(tasks) == 1

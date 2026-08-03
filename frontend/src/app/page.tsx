@@ -8,7 +8,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import type { Provider, ResearchProvider, ModelInfo } from '@/lib/api-client';
 import { sessionsApi, providersApi, systemApi } from '@/lib/api-client';
 import { useToast } from '@/hooks/useToast';
@@ -60,15 +59,15 @@ function Toggle({ id, checked, onChange, label, description, disabled }: ToggleP
           className="absolute opacity-0 w-0 h-0"
         />
         <div
-          className={`w-10 h-[22px] rounded-full relative transition-colors ${checked ? 'bg-black' : 'bg-grey-85'}`}
+          className={`w-10 h-[22px] rounded-full relative transition-colors ${checked ? 'bg-primary' : 'bg-bgMuted'}`}
         >
           <div
-            className={`w-4 h-4 rounded-full bg-white absolute top-[3px] transition-all ${checked ? 'left-[21px]' : 'left-[3px]'}`}
+            className={`w-4 h-4 rounded-full bg-primary-fg absolute top-[3px] transition-all ${checked ? 'left-[21px]' : 'left-[3px]'}`}
           />
         </div>
       </div>
       <div>
-        <div className="text-sm font-semibold">{label}</div>
+        <div className="text-sm font-bold text-foreground">{label}</div>
         {description && (
           <div className="text-xs text-subtle mt-0.5">
             {description}
@@ -92,6 +91,7 @@ interface MemberCardProps {
   index: number;
   models: Record<Provider, ModelInfo[]>;
   loadingModels: Record<Provider, boolean>;
+  modelErrors: Record<Provider, string | null>;
   onUpdate: (id: string, updates: Partial<SelectedMember>) => void;
   onRemove: (id: string) => void;
   onSetChairman: (id: string) => void;
@@ -115,104 +115,83 @@ function MemberCard({
 
   return (
     <div
-      className={`p-4 rounded-md transition-colors animate-fade-in border
-        ${isChairman ? 'border-2 border-black bg-grey-93' : 'border-border bg-background'}`}
+      className={`flex items-center gap-4 p-4 bg-surface border rounded-lg transition-colors shadow-sm
+        ${isChairman ? 'border-border-strong bg-surface-secondary' : 'border-border'}`}
     >
-      <div className="flex justify-between items-center mb-3">
-        <span className="font-display font-bold text-sm">
-          Council Seat {index + 1}
-          {isChairman && (
-            <span className="ml-2 font-mono text-xs font-normal px-1.5 py-px border border-black rounded-sm">
-              CHAIRMAN
-            </span>
-          )}
-        </span>
-        <div className="flex gap-2">
-          {!isChairman && (
-            <button
-              className="px-2 py-1 text-xs font-medium border border-transparent hover:bg-grey-93 rounded transition-colors"
-              onClick={() => onSetChairman(member.id)}
-              title="Set as Chairman"
-              aria-label={`Set Council Seat ${index + 1} as Chairman`}
-            >
-              ★ Set Chairman
-            </button>
-          )}
-          <button
-            className="px-2 py-1 text-xs font-medium border border-transparent hover:bg-grey-93 rounded transition-colors"
-            onClick={() => onRemove(member.id)}
-            aria-label={`Remove Council Seat ${index + 1}`}
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {/* Provider */}
-        <div>
-          <label htmlFor={`provider-${member.id}`} className="block text-xs font-semibold mb-1">
-            Provider
-          </label>
-          <select
-            id={`provider-${member.id}`}
-            value={member.provider}
-            onChange={(e) =>
-              onUpdate(member.id, { provider: e.target.value as Provider, model_id: '' })
-            }
-            className="w-full text-base sm:text-sm bg-background border border-border rounded px-2 py-1.5 focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all"
-          >
-            {PROVIDERS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Model */}
-        <div>
-          <label htmlFor={`model-${member.id}`} className="block text-xs font-semibold mb-1">
-            Model
-          </label>
-          <SearchableSelect
-            id={`model-${member.id}`}
-            value={member.model_id}
-            onChange={(val) => onUpdate(member.id, { model_id: val })}
-            options={
-              member.provider && !isLoading && !error && providerModels.length > 0
-                ? providerModels.map((m) => ({ value: m.id, label: m.name || m.id }))
-                : []
-            }
-            disabled={!member.provider || isLoading || !!error || providerModels.length === 0}
-            placeholder={
-              !member.provider ? 'Select provider first' :
-              isLoading ? 'Loading models...' :
-              error ? (error.includes('No API key') 
-                ? `Connect ${member.provider === 'nvidia_nim' ? 'NVIDIA NIM' : 'OpenRouter'} in Settings` 
-                : 'Could not load models') :
-              providerModels.length === 0 ? 'No models available' :
-              'Select model…'
-            }
-            className={error ? 'border border-red-500 rounded text-red-700' : ''}
-          />
-        </div>
-      </div>
-
-      {/* Display label */}
-      <div className="mt-3">
-        <label htmlFor={`label-${member.id}`} className="block text-xs font-semibold mb-1">
-          Display label (optional)
+      <div className="flex-1 flex flex-col gap-1">
+        <label htmlFor={`provider-${member.id}`} className="text-xs font-medium text-muted sr-only">
+          Provider
         </label>
-        <input
-          id={`label-${member.id}`}
-          type="text"
-          placeholder={`Council Seat ${index + 1}`}
-          value={member.display_label}
-          onChange={(e) => onUpdate(member.id, { display_label: e.target.value })}
-          className="w-full text-base sm:text-sm bg-background border border-border rounded px-2 py-1.5 focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all placeholder-subtle"
+        <select
+          id={`provider-${member.id}`}
+          value={member.provider}
+          onChange={(e) =>
+            onUpdate(member.id, { provider: e.target.value as Provider, model_id: '' })
+          }
+          className="w-full text-sm bg-background text-foreground border border-border rounded-md px-3 py-2 focus:border-border-strong focus:ring-2 focus:ring-foreground/10 outline-none transition-all"
+        >
+          {PROVIDERS.map((p) => (
+            <option key={p.value} value={p.value}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="flex-1 flex flex-col gap-1">
+        <label htmlFor={`model-${member.id}`} className="text-xs font-medium text-muted sr-only">
+          Model
+        </label>
+        <SearchableSelect
+          id={`model-${member.id}`}
+          value={member.model_id}
+          onChange={(val) => onUpdate(member.id, { model_id: val })}
+          options={
+            member.provider && !isLoading && !error && providerModels.length > 0
+              ? providerModels.map((m) => ({ value: m.id, label: m.name || m.id }))
+              : []
+          }
+          disabled={!member.provider || isLoading || !!error || providerModels.length === 0}
+          placeholder={
+            !member.provider ? 'Select provider first' :
+            isLoading ? 'Loading models...' :
+            error ? (error.includes('No API key') 
+              ? `Connect ${member.provider === 'nvidia_nim' ? 'NVIDIA NIM' : 'OpenRouter'} in Settings` 
+              : 'Could not load models') :
+            providerModels.length === 0 ? 'No models available' :
+            'Select model…'
+          }
+          className={error ? 'border border-foreground rounded-md text-foreground' : ''}
         />
       </div>
+
+      <div className="w-32 flex justify-center">
+        {!isChairman ? (
+          <button
+            className="text-xs font-medium text-muted hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-surface-hover"
+            onClick={() => onSetChairman(member.id)}
+            title="Set as Chairman"
+            aria-label={`Set Council Seat ${index + 1} as Chairman`}
+          >
+            ☆ Chairman
+          </button>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-xs font-bold text-foreground bg-bgSubtle border border-border-strong px-2 py-1 rounded">
+            ★ Chairman
+          </span>
+        )}
+      </div>
+
+      <button
+        className="text-subtle hover:text-foreground transition-colors p-2 rounded hover:bg-surface-hover"
+        onClick={() => onRemove(member.id)}
+        aria-label={`Remove Council Seat ${index + 1}`}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
     </div>
   );
 }
@@ -228,6 +207,9 @@ export default function NewSessionPage() {
   const [chairmanId, setChairmanId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Synchronous guard — state updates are async so submitting state alone
+  // cannot prevent a race on rapid double-click or Cmd+Enter + click.
+  const isSubmittingRef = useRef(false);
   const { toast } = useToast();
 
   const [researchEnabled, setResearchEnabled] = useState(false);
@@ -334,6 +316,8 @@ export default function NewSessionPage() {
       prev.map((m) => (m.id === id ? { ...m, ...updates } : m)),
     );
     if (updates.provider) fetchModels(updates.provider);
+    // Clear server-side validation error when the user changes their config
+    setSubmitError(null);
   }
 
   function removeMember(id: string) {
@@ -375,7 +359,8 @@ export default function NewSessionPage() {
   const canConvene = validationMessage === null;
 
   async function handleConvene() {
-    if (!canConvene || submitting) return;
+    if (!canConvene || isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -393,9 +378,24 @@ export default function NewSessionPage() {
         research_provider: researchEnabled ? researchProvider : undefined,
         archive_to_notion: archiveToNotion,
       });
+      sessionStorage.setItem(
+        `synod-session-members-${session.session_id}`,
+        JSON.stringify(
+          members.map((m, idx) => ({
+            member_id: m.id,
+            provider: m.provider,
+            model_id: m.model_id,
+            display_label: m.display_label || `Council Seat ${idx + 1}`,
+            role: m.role,
+          }))
+        )
+      );
       router.push(`/sessions/${session.session_id}`);
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Failed to start session. Check your API keys in Settings.', 'error');
+      const message = err instanceof Error ? err.message : 'Failed to start session. Check your API keys in Settings.';
+      setSubmitError(message);
+      toast(message, 'error');
+      isSubmittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -404,7 +404,7 @@ export default function NewSessionPage() {
     <div className="max-w-[960px] mx-auto px-6 py-8">
       {/* Page heading */}
       <div className="mb-8">
-        <h1 className="font-display text-3xl font-bold mb-2">
+        <h1 className="font-display text-3xl font-bold mb-2 text-foreground">
           Convene a New Council
         </h1>
         <p className="text-muted text-sm m-0">
@@ -423,20 +423,22 @@ export default function NewSessionPage() {
           >
             The same query is sent to all Council Members simultaneously.
           </label>
-          <textarea
-            id="session-query"
-            ref={textareaRef}
-            placeholder="What question should the council deliberate on?"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="w-full min-h-[120px] resize-none font-body text-base leading-relaxed overflow-y-hidden bg-background border border-border rounded-md p-3 focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all"
-            aria-describedby="query-hint"
-          />
-          <p id="query-hint" className="text-xs text-subtle mt-1 m-0">
-            Press <kbd className="font-mono px-1 border border-border rounded-sm">⌘ Enter</kbd> to convene.
-            {query.trim().length > 0 && (
-              <span className="ml-2">{query.trim().length} characters</span>
-            )}
+          <div className="relative">
+            <textarea
+              id="session-query"
+              ref={textareaRef}
+              placeholder="What question should the council deliberate on?"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="w-full min-h-[120px] resize-none text-base leading-relaxed overflow-y-hidden bg-background text-foreground border border-border rounded-lg p-4 focus:border-border-strong focus:ring-2 focus:ring-foreground/10 outline-none transition-all pb-8 placeholder:text-subtle"
+              aria-describedby="query-hint"
+            />
+            <div className="absolute bottom-3 right-3 text-xs text-subtle font-medium bg-transparent pointer-events-none">
+              {query.length > 0 && <span>{query.length} chars</span>}
+            </div>
+          </div>
+          <p id="query-hint" className="text-xs text-muted mt-2 m-0">
+            Press <kbd className="font-mono px-1.5 py-0.5 bg-bgSubtle border border-border rounded-md text-foreground">⌘ Enter</kbd> to convene.
           </p>
         </section>
 
@@ -451,7 +453,7 @@ export default function NewSessionPage() {
             </div>
             <button
               id="add-member-btn"
-              className="bg-white text-black px-3 py-1.5 border-2 border-black font-semibold text-xs rounded hover:bg-grey-93 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="bg-primary text-primary-fg border-2 border-border-strong font-bold text-xs rounded px-3 py-1.5 hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               onClick={addMember}
               disabled={members.length >= 6}
               aria-label="Add a Council Member seat"
@@ -461,20 +463,26 @@ export default function NewSessionPage() {
           </div>
 
           {members.length === 0 ? (
-            <div className="border-2 border-dashed border-border rounded-md p-8 text-center">
-              <p className="text-sm text-subtle mb-4">
-                No Council Members added yet. Add at least 3 to begin.
+            <div className="flex flex-col items-center justify-center border border-dashed border-border rounded-xl p-12 bg-surface text-center">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-subtle mb-4">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                <circle cx="9" cy="7" r="4"></circle>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+              </svg>
+              <p className="text-sm text-muted mb-4 font-medium">
+                Add your first council member to begin.
               </p>
               <button 
                 id="add-first-member-btn" 
-                className="bg-white text-black px-6 py-3 border-2 border-black font-semibold text-sm rounded hover:bg-grey-93 transition-colors" 
+                className="bg-primary text-primary-fg border border-border-strong font-bold text-sm px-6 py-2.5 rounded-lg hover:bg-primary-hover transition-colors shadow-sm" 
                 onClick={addMember}
               >
-                + Add First Member
+                + Add Member
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-3">
               {members.map((member, i) => (
                 <MemberCard
                   key={member.id}
@@ -492,10 +500,10 @@ export default function NewSessionPage() {
               {members.length < 6 && (
                 <button
                   id="add-member-inline-btn"
-                  className="flex items-center justify-center border-2 border-dashed border-border rounded-md p-3 text-sm font-medium text-black bg-transparent hover:bg-grey-93 hover:border-grey-85 transition-colors"
+                  className="flex items-center justify-center border border-dashed border-border rounded-lg p-4 text-sm font-medium text-foreground bg-surface hover:bg-surface-hover transition-colors mt-2"
                   onClick={addMember}
                 >
-                  + Add another member ({members.length}/6)
+                  + Add Member ({members.length}/6)
                 </button>
               )}
             </div>
@@ -503,35 +511,45 @@ export default function NewSessionPage() {
         </section>
 
         {/* ── Submit ─── */}
-        <section aria-labelledby="convene-section">
+        <section aria-labelledby="convene-section" className="flex flex-col items-end">
           {validationMessage && (
             <p
               role="status"
-              className="text-sm text-muted mb-3 border-l-4 border-grey-50 pl-3"
+              className="text-sm text-foreground font-semibold mb-3"
             >
               {validationMessage}
             </p>
           )}
 
-          <button
-            id="convene-btn"
-            className="bg-black text-white px-8 py-4 border-2 border-black font-semibold text-base rounded hover:bg-grey-10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed min-w-[240px] flex items-center justify-center gap-2"
-            onClick={handleConvene}
-            disabled={!canConvene || submitting}
-          >
-            {submitting ? (
-              <>
-                <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Convening…
-              </>
-            ) : (
-              'Convene the Council →'
-            )}
-          </button>
+          {submitError && (
+            <p
+              role="alert"
+              className="w-full text-sm font-medium border-l-2 border-black pl-3 py-1 mb-3"
+            >
+              {submitError}
+            </p>
+          )}
 
-          <p className="text-xs text-subtle mt-2 m-0">
-            This will make {configured.length || 'N'} API call{configured.length !== 1 ? 's' : ''} in parallel, billed to your configured provider keys.
-          </p>
+          <div className="w-full flex items-center justify-between">
+            <p className="text-xs text-muted m-0 hidden sm:block">
+              This will make {configured.length || 'N'} API call{configured.length !== 1 ? 's' : ''} in parallel.
+            </p>
+            <button
+              id="convene-btn"
+              className="bg-primary text-primary-fg border border-border-strong px-8 h-12 font-bold text-base rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-[200px] flex items-center justify-center gap-2 shadow-sm"
+              onClick={handleConvene}
+              disabled={!canConvene || submitting}
+            >
+              {submitting ? (
+                <>
+                  <span className="inline-block w-4 h-4 border-2 border-primary-fg/30 border-t-primary-fg rounded-full animate-spin" />
+                  Convening…
+                </>
+              ) : (
+                'Convene Council →'
+              )}
+            </button>
+          </div>
         </section>
       </div>
     </div>

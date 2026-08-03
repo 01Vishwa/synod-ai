@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ResearchProviderCard } from '@/components/settings/ResearchProviderCard';
 import { NotionConnectCard } from '@/components/settings/NotionConnectCard';
-import { integrationsApi, type ResearchProvider } from '@/lib/api-client';
+import { integrationsApi, researchApi, type ResearchProvider } from '@/lib/api-client';
 import { useToast } from '@/hooks/useToast';
 
 function Toggle({
@@ -26,23 +26,23 @@ function Toggle({
           onChange={(e) => onChange(e.target.checked)}
           className="absolute opacity-0 w-0 h-0"
         />
-        <div className={`w-10 h-[22px] rounded-full relative transition-colors ${checked ? 'bg-black' : 'bg-grey-85'}`}>
-          <div className={`w-4 h-4 rounded-full bg-white absolute top-[3px] transition-all ${checked ? 'left-[21px]' : 'left-[3px]'}`} />
+        <div className={`w-10 h-[22px] rounded-full relative transition-colors ${checked ? 'bg-primary' : 'bg-bgMuted'}`}>
+          <div className={`w-4 h-4 rounded-full bg-primary-fg absolute top-[3px] transition-all ${checked ? 'left-[21px]' : 'left-[3px]'}`} />
         </div>
       </div>
       <div>
-        <div className="text-sm font-semibold">{label}</div>
-        {description && <div className="text-xs text-subtle mt-0.5">{description}</div>}
+        <div className="text-sm font-bold text-foreground">{label}</div>
+        {description && <div className="text-xs text-muted mt-0.5">{description}</div>}
       </div>
     </label>
   );
 }
 
-export default function IntegrationsSettingsPage() {
-  const [configured, setConfigured] = useState<Record<ResearchProvider, boolean>>({
-    tavily: false,
-    anakin: false,
-  });
+import { Suspense } from 'react';
+
+function IntegrationsSettingsPageInner() {
+  const [tavilyKey, setTavilyKey] = useState<{ has_key: boolean; fingerprint?: string }>({ has_key: false });
+  const [anakinKey, setAnakinKey] = useState<{ has_key: boolean; fingerprint?: string }>({ has_key: false });
   const [notionConnected, setNotionConnected] = useState(false);
   const [researchEnabled, setResearchEnabled] = useState(false);
   const [researchProvider, setResearchProvider] = useState<ResearchProvider>('tavily');
@@ -64,11 +64,9 @@ export default function IntegrationsSettingsPage() {
 
     if (notionStatus === 'connected') {
       toast('Notion connected successfully!', 'success');
-      // Clean up URL
       router.replace('/settings/integrations');
     } else if (notionError) {
       toast(`Notion connection failed: ${notionError}`, 'error');
-      // Clean up URL
       router.replace('/settings/integrations');
     }
   }, [searchParams, toast, router]);
@@ -91,8 +89,13 @@ export default function IntegrationsSettingsPage() {
   async function fetchStatus() {
     try {
       const data = await integrationsApi.getStatus();
-      setConfigured({ tavily: data.research.tavily, anakin: data.research.anakin });
       setNotionConnected(data.notion.connected);
+      
+      const keys = await researchApi.getKeys();
+      const tav = keys.find(k => k.provider === 'tavily');
+      const ank = keys.find(k => k.provider === 'anakin');
+      setTavilyKey({ has_key: !!tav, fingerprint: tav?.fingerprint });
+      setAnakinKey({ has_key: !!ank, fingerprint: ank?.fingerprint });
     } catch {
       // gracefully handle missing backend
     }
@@ -114,7 +117,7 @@ export default function IntegrationsSettingsPage() {
             </h2>
 
             {/* Research Toggle */}
-            <div className="bg-background border border-border rounded-md p-4 mb-4">
+            <div className="bg-surface border border-border rounded-md p-4 mb-4">
               <Toggle
                 id="research-toggle"
                 checked={researchEnabled}
@@ -125,14 +128,14 @@ export default function IntegrationsSettingsPage() {
               {researchEnabled && (
                 <div className="mt-4 ml-[52px] flex flex-col gap-4">
                   <div>
-                    <label htmlFor="research-provider-select" className="block text-xs font-semibold mb-1">
+                    <label htmlFor="research-provider-select" className="block text-xs font-semibold text-foreground mb-1">
                       Research provider
                     </label>
                     <select
                       id="research-provider-select"
                       value={researchProvider}
                       onChange={(e) => handleResearchProviderChange(e.target.value as ResearchProvider)}
-                      className="max-w-[200px] w-full text-sm bg-background border border-border rounded px-2 py-1.5 focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all"
+                      className="max-w-[200px] w-full text-sm bg-background text-foreground border border-border rounded px-2 py-1.5 focus:border-border-strong focus:ring-2 focus:ring-foreground/10 outline-none transition-all"
                     >
                       <option value="tavily">Tavily</option>
                       <option value="anakin">Anakin API</option>
@@ -142,16 +145,20 @@ export default function IntegrationsSettingsPage() {
                   <div className="flex flex-col gap-4">
                     <ResearchProviderCard
                       provider="tavily"
-                      title="Tavily API"
-                      description="AI-native search engine. Requires a tvly-... API key."
-                      isConfigured={configured.tavily}
+                      title="Tavily"
+                      description="Web search and extraction for live research grounding."
+                      placeholder="tvly-..."
+                      hasKey={tavilyKey.has_key}
+                      savedFingerprint={tavilyKey.fingerprint}
                       onUpdate={fetchStatus}
                     />
                     <ResearchProviderCard
                       provider="anakin"
-                      title="Anakin API"
-                      description="Deep web scraping and crawling capabilities."
-                      isConfigured={configured.anakin}
+                      title="Anakin"
+                      description="Agentic web research and deep content extraction."
+                      placeholder="Enter Anakin API key"
+                      hasKey={anakinKey.has_key}
+                      savedFingerprint={anakinKey.fingerprint}
                       onUpdate={fetchStatus}
                     />
                   </div>
@@ -160,7 +167,7 @@ export default function IntegrationsSettingsPage() {
             </div>
 
             {/* Notion Toggle */}
-            <div className="bg-background border border-border rounded-md p-4">
+            <div className="bg-surface border border-border rounded-md p-4">
               <Toggle
                 id="notion-toggle"
                 checked={archiveToNotion}
@@ -182,5 +189,13 @@ export default function IntegrationsSettingsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function IntegrationsSettingsPage() {
+  return (
+    <Suspense fallback={<div className="p-8"><div className="w-8 h-8 rounded-full border-4 border-primary border-t-transparent animate-spin mx-auto"></div></div>}>
+      <IntegrationsSettingsPageInner />
+    </Suspense>
   );
 }

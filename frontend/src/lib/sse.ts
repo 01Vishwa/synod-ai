@@ -16,7 +16,21 @@ export type SseEventType =
   // Structured terminal events emitted by the backend (Phase 3 fix)
   | 'session.failed'
   | 'session.completed'
-  | 'session.stream_timeout';
+  | 'session.stream_timeout'
+  | 'member.queued'
+  | 'member.started'
+  | 'member.connecting'
+  | 'member.first_token'
+  | 'member.stream_chunk'
+  | 'member.completed'
+  | 'member.failed'
+  | 'peer_review.started'
+  | 'peer_review.progress'
+  | 'ranking.updated'
+  | 'chairman.started'
+  | 'chairman.stream_chunk'
+  | 'chairman.completed'
+  | 'state_snapshot';
 
 export interface SseEvent<T = unknown> {
   type: SseEventType;

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 
 @dataclass(frozen=True)
@@ -99,3 +99,40 @@ class ProviderAdapter(ABC):
         Returns True on success; raises ProviderError on failure.
         """
         ...
+
+    @abstractmethod
+    async def stream_chat(
+        self,
+        messages: list[ChatMessage],
+        model_id: str,
+        api_key: str,
+        *,
+        timeout_s: int = 60,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+    ) -> AsyncGenerator[str, None]:
+        """
+        Yield token delta strings as they arrive from the provider stream.
+
+        Args:
+            messages:    Ordered list of conversation messages.
+            model_id:    Provider-specific model identifier string.
+            api_key:     User-supplied decrypted API key — never persisted here.
+            timeout_s:   Per-call timeout in seconds.
+            temperature: Sampling temperature.
+            max_tokens:  Optional hard token ceiling for the response.
+
+        Yields:
+            str — each raw text fragment (delta) emitted by the model,
+            in order, without buffering.  Empty deltas are not yielded.
+
+        Raises:
+            AuthenticationError:  provider rejected the API key.
+            ProviderTimeoutError: provider stream timed out.
+            RateLimitError:       provider rate limit hit mid-stream.
+            ProviderError:        any other provider-side failure.
+        """
+        # Satisfy the type checker: concrete implementations must use
+        # `async def stream_chat(...) -> AsyncGenerator[str, None]:`
+        # and contain at least one `yield` statement.
+        yield  # type: ignore[misc]

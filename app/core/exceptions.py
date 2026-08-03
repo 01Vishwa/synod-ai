@@ -186,6 +186,12 @@ class UpstreamTimeoutError(AppException):
         self.provider = provider
 
 
+# Semantic alias used by streaming adapters — same HTTP semantics and retry
+# classification as UpstreamTimeoutError, but named to reflect the streaming
+# context so callers can catch either.
+ProviderTimeoutError = UpstreamTimeoutError
+
+
 class FallbackExhaustedError(AppException):
     """
     Raised by LLMRouter when all retry attempts for a single provider call

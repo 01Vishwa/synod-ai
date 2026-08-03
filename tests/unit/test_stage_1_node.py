@@ -2,12 +2,12 @@
 tests/unit/test_stage_1_node.py — Stage 1 node unit tests.
 
 Tests:
-  1. Successful model call → MODEL_REQUEST_SUCCESS, response returned.
-  2. AuthenticationError → member error response, no re-raise.
-  3. FallbackExhaustedError → member error response.
-  4. Generic exception (e.g. AttributeError from wrong column name) →
-     member error response (regression for Bug 1 silent failure).
-  5. Provider 429 (RateLimitError) → FallbackExhaustedError after retries.
+  1. Successful streaming call → stage_1_responses has content, bus events fired.
+  2. AuthenticationError → member error response, MemberFailed event, no re-raise.
+  3. FallbackExhaustedError → member error response, errors list populated.
+  4. Generic exception (e.g. AttributeError) → member error response (regression).
+  5. RateLimitError surfaces as FallbackExhaustedError → error MemberResponse.
+  6. Key-fetch failure → MemberFailed on bus, error MemberResponse returned.
 """
 from __future__ import annotations
 
@@ -20,13 +20,18 @@ from app.core.exceptions import (
     FallbackExhaustedError,
     RateLimitError,
 )
-from app.domain.ports.provider_adapter import ChatResponse
 from app.orchestration.nodes.stage_1 import Stage1Task, stage_1_node
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+async def _aiter(*items):
+    """Yield items one at a time — simulates an async streaming generator."""
+    for item in items:
+        yield item
+
 
 def _make_config(llm_router=None, vault=None, tracer=None, repo=None) -> dict:
     """Build a minimal LangGraph RunnableConfig with GraphDependencies."""
@@ -47,7 +52,9 @@ def _make_config(llm_router=None, vault=None, tracer=None, repo=None) -> dict:
     # Simulate a valid provider key model with the correct column
     key_model = MagicMock()
     key_model.ciphertext_b64 = "FAKE_ENCRYPTED_KEY"
-    # Deliberately do NOT set key_model.encrypted_key
+    key_model.last_test_ok = True
+    key_model.key_fingerprint = "fp-test"
+    # Deliberately do NOT set key_model.encrypted_key (old wrong attribute)
     result_mock.scalar_one_or_none.return_value = key_model
     mock_session.execute = AsyncMock(return_value=result_mock)
     mock_cm = AsyncMock()
@@ -84,16 +91,28 @@ def _make_task(member_id: str = "m1", model_id: str = "openai/gpt-4.1-mini") -> 
     }
 
 
-def _make_chat_response(content: str = "Four.") -> ChatResponse:
-    return ChatResponse(
-        content=content,
-        model_id="openai/gpt-4.1-mini",
-        tokens_in=10,
-        tokens_out=5,
-        latency_ms=250,
-        cost_usd=0.0001,
-        raw=None,
-    )
+def _make_streaming_router(tokens: list[str] | None = None, side_effect=None):
+    """
+    Build a mock LLMRouter whose stream_chat is an async generator.
+
+    If `side_effect` is given the generator raises it immediately.
+    Otherwise it yields each token in `tokens`.
+    """
+    mock_router = MagicMock()
+
+    if side_effect is not None:
+        async def _stream_raises(*args, **kwargs):
+            raise side_effect
+            yield  # make it a generator function
+        mock_router.stream_chat = _stream_raises
+    else:
+        deltas = tokens or ["The ", "answer ", "is ", "four."]
+        async def _stream_ok(*args, **kwargs):
+            for t in deltas:
+                yield t
+        mock_router.stream_chat = _stream_ok
+
+    return mock_router
 
 
 # ---------------------------------------------------------------------------
@@ -101,10 +120,18 @@ def _make_chat_response(content: str = "Four.") -> ChatResponse:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_stage_1_success():
-    """Successful LLM call → stage_1_responses contains one MemberResponse with content."""
-    mock_router = AsyncMock()
-    mock_router.chat = AsyncMock(return_value=_make_chat_response("The answer is four."))
+async def test_stage_1_success(monkeypatch):
+    """Successful streaming call → stage_1_responses contains one MemberResponse with content."""
+    mock_router = _make_streaming_router(["The answer is four."])
+
+    # Patch the event bus so we don't need a real asyncio.Queue
+    mock_bus = AsyncMock()
+    monkeypatch.setattr(
+        "app.orchestration.nodes.stage_1.get_or_create_bus",
+        AsyncMock(return_value=mock_bus),
+    )
+    # Suppress fire-and-forget task (close the coroutine to silence RuntimeWarning)
+    monkeypatch.setattr("app.orchestration.nodes.stage_1.asyncio.create_task", lambda coro: coro.close() or None)
 
     config = _make_config(llm_router=mock_router)
     result = await stage_1_node(_make_task(), config)
@@ -116,19 +143,29 @@ async def test_stage_1_success():
     assert resp["error"] is None
     assert resp["member_id"] == "m1"
 
+    # Verify bus events were published
+    published_types = [type(call.args[0]).__name__ for call in mock_bus.publish.call_args_list]
+    assert "ProviderConnecting" in published_types
+    assert "FirstToken" in published_types
+    assert "StreamChunk" in published_types
+    assert "MemberCompleted" in published_types
+
 
 @pytest.mark.asyncio
-async def test_stage_1_authentication_error_returns_error_response():
+async def test_stage_1_authentication_error_returns_error_response(monkeypatch):
     """
     AuthenticationError must NOT propagate out of stage_1_node.
     It must be returned as a MemberResponse with error set.
+    A MemberFailed event must be published to the bus.
     """
-    mock_router = AsyncMock()
-    mock_router.chat = AsyncMock(
-        side_effect=AuthenticationError(
-            message="Invalid API key.",
-            provider="openrouter",
-        )
+    mock_router = _make_streaming_router(
+        side_effect=AuthenticationError(message="Invalid API key.", provider="openrouter")
+    )
+
+    mock_bus = AsyncMock()
+    monkeypatch.setattr(
+        "app.orchestration.nodes.stage_1.get_or_create_bus",
+        AsyncMock(return_value=mock_bus),
     )
 
     config = _make_config(llm_router=mock_router)
@@ -137,24 +174,33 @@ async def test_stage_1_authentication_error_returns_error_response():
     assert "stage_1_responses" in result
     resp = result["stage_1_responses"][0]
     assert resp["error"] is not None
-    assert "auth" in resp["error"].lower() or "key" in resp["error"].lower()
+    assert "credentials" in resp["error"].lower() or "key" in resp["error"].lower()
     assert resp["content"] == ""
 
     # errors list must also be populated for the session error tracker
     assert "errors" in result
     assert len(result["errors"]) == 1
 
+    # MemberFailed must have been published
+    published_types = [type(call.args[0]).__name__ for call in mock_bus.publish.call_args_list]
+    assert "MemberFailed" in published_types
+
 
 @pytest.mark.asyncio
-async def test_stage_1_fallback_exhausted_returns_error_response():
+async def test_stage_1_fallback_exhausted_returns_error_response(monkeypatch):
     """FallbackExhaustedError (all retries done) → error MemberResponse, no raise."""
-    mock_router = AsyncMock()
-    mock_router.chat = AsyncMock(
+    mock_router = _make_streaming_router(
         side_effect=FallbackExhaustedError(
             message="All 3 attempts failed.",
             provider="openrouter",
             chain=["ATTEMPT_1:RateLimitError", "ATTEMPT_2:RateLimitError", "ATTEMPT_3:RateLimitError"],
         )
+    )
+
+    mock_bus = AsyncMock()
+    monkeypatch.setattr(
+        "app.orchestration.nodes.stage_1.get_or_create_bus",
+        AsyncMock(return_value=mock_bus),
     )
 
     config = _make_config(llm_router=mock_router)
@@ -167,15 +213,20 @@ async def test_stage_1_fallback_exhausted_returns_error_response():
 
 
 @pytest.mark.asyncio
-async def test_stage_1_generic_exception_does_not_hang():
+async def test_stage_1_generic_exception_does_not_hang(monkeypatch):
     """
     Bug 1 regression: before the fix, model.encrypted_key raised AttributeError
     which was caught by the generic except block.  The node must always return
     a result dict — never hang or re-raise — so the graph fan-out completes.
     """
-    mock_router = AsyncMock()
-    mock_router.chat = AsyncMock(
+    mock_router = _make_streaming_router(
         side_effect=AttributeError("'ProviderKeyModel' object has no attribute 'encrypted_key'")
+    )
+
+    mock_bus = AsyncMock()
+    monkeypatch.setattr(
+        "app.orchestration.nodes.stage_1.get_or_create_bus",
+        AsyncMock(return_value=mock_bus),
     )
 
     config = _make_config(llm_router=mock_router)
@@ -190,7 +241,7 @@ async def test_stage_1_generic_exception_does_not_hang():
 
 
 @pytest.mark.asyncio
-async def test_stage_1_rate_limit_error_is_retried_by_router():
+async def test_stage_1_rate_limit_error_is_retried_by_router(monkeypatch):
     """
     RateLimitError from the adapter must be retried by LLMRouter (not by stage_1_node).
     After exhaustion it surfaces as FallbackExhaustedError → error MemberResponse.
@@ -198,14 +249,19 @@ async def test_stage_1_rate_limit_error_is_retried_by_router():
     This test verifies stage_1_node handles FallbackExhaustedError correctly
     (the retry logic itself lives in LLMRouter, tested separately).
     """
-    mock_router = AsyncMock()
-    # Simulate LLMRouter having already retried and given up
-    mock_router.chat = AsyncMock(
+    mock_router = _make_streaming_router(
+        # Simulate LLMRouter having already retried and given up
         side_effect=FallbackExhaustedError(
             message="All 3 attempts failed with RateLimitError.",
             provider="openrouter",
             chain=["ATTEMPT_1:RateLimitError", "ATTEMPT_2:RateLimitError", "ATTEMPT_3:RateLimitError"],
         )
+    )
+
+    mock_bus = AsyncMock()
+    monkeypatch.setattr(
+        "app.orchestration.nodes.stage_1.get_or_create_bus",
+        AsyncMock(return_value=mock_bus),
     )
 
     config = _make_config(llm_router=mock_router)
@@ -215,3 +271,35 @@ async def test_stage_1_rate_limit_error_is_retried_by_router():
     assert resp["error"] is not None
     # Verify the node reported MODEL_REQUEST_FAILED (via errors list)
     assert len(result.get("errors", [])) == 1
+
+
+@pytest.mark.asyncio
+async def test_stage_1_key_fetch_failure_publishes_member_failed(monkeypatch):
+    """
+    If the key cannot be decrypted (missing key / vault error), a MemberFailed
+    event must be published and an error MemberResponse returned — never a raise.
+    """
+    from app.core.exceptions import ProviderError
+
+    # Key vault will fail to decrypt
+    mock_vault = MagicMock()
+    mock_vault.decrypt.side_effect = ProviderError(
+        message="Vault unavailable", provider="openrouter"
+    )
+
+    mock_bus = AsyncMock()
+    monkeypatch.setattr(
+        "app.orchestration.nodes.stage_1.get_or_create_bus",
+        AsyncMock(return_value=mock_bus),
+    )
+
+    config = _make_config(vault=mock_vault)
+    result = await stage_1_node(_make_task(), config)
+
+    assert "stage_1_responses" in result
+    resp = result["stage_1_responses"][0]
+    assert resp["error"] is not None
+    assert resp["content"] == ""
+
+    published_types = [type(call.args[0]).__name__ for call in mock_bus.publish.call_args_list]
+    assert "MemberFailed" in published_types

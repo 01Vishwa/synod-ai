@@ -16,7 +16,6 @@ export function NotionConnectCard({ isConnected }: NotionConnectCardProps) {
     setError(null);
     try {
       const res = await integrationsApi.connectNotion();
-      // Redirect to the Notion OAuth URL returned by the backend
       window.location.href = res.auth_url;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start Notion connection.');
@@ -25,41 +24,44 @@ export function NotionConnectCard({ isConnected }: NotionConnectCardProps) {
   }
 
   return (
-    <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+    <div className="bg-surface border border-border rounded-xl shadow-sm p-6 flex flex-col gap-4">
       <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 style={{ fontSize: 'var(--text-lg)', marginBottom: 'var(--space-1)' }}>Notion Archive</h3>
+        <div className="flex justify-between items-center mb-1">
+          <h3 className="text-lg font-bold text-foreground">Notion Archive</h3>
           {isConnected ? (
-            <span className="badge">✓ Connected</span>
+            <span className="inline-flex items-center text-xs font-bold text-foreground border-2 border-border-strong rounded-md px-2.5 py-1">
+              ✓ Connected
+            </span>
           ) : (
-            <span className="badge badge-muted">Not connected</span>
+            <span className="inline-flex items-center text-xs font-medium text-muted bg-bgSubtle border border-border rounded-md px-2.5 py-1">
+              Not connected
+            </span>
           )}
         </div>
-        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-subtle)', margin: 0 }}>
+        <p className="text-sm text-muted m-0">
           Allow Synod to save completed Council reports and deliberation trails directly to a Notion page.
         </p>
       </div>
 
       <div>
         {isConnected ? (
-          <div style={{ padding: 'var(--space-3)', background: 'var(--grey-93)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-sm)' }}>
-            <span style={{ fontWeight: 600 }}>Notion is connected.</span>
-            <br />
-            <span style={{ color: 'var(--color-text-subtle)' }}>
+          <div className="p-3 bg-bgSubtle border border-border rounded-lg text-sm text-foreground space-y-1">
+            <span className="font-semibold block">Notion is connected.</span>
+            <span className="text-muted block text-xs">
               Synod only has access to the specific pages you shared during the connection process.
             </span>
           </div>
         ) : (
           <div>
             <button
-              className="btn-primary"
+              className="bg-primary text-primary-fg border border-border-strong px-6 py-3 rounded-lg hover:bg-primary-hover transition-colors font-bold text-sm"
               onClick={handleConnect}
               disabled={connecting}
             >
               {connecting ? 'Connecting…' : 'Connect Notion Workspace'}
             </button>
             {error && (
-              <div style={{ color: 'var(--color-text)', marginTop: 'var(--space-2)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
+              <div className="text-foreground mt-2 text-sm font-semibold">
                 ✕ {error}
               </div>
             )}

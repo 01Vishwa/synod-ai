@@ -20,7 +20,7 @@ export function DashboardRenderer({ spec }: DashboardRendererProps) {
   // Add a grid container around the rendered root component
   // so widgets can flow naturally in 2–4 columns.
   return (
-    <JSONUIProvider>
+    <JSONUIProvider registry={registry}>
       <div className="grid grid-cols-1 md:grid-cols-2 desktop:grid-cols-4 gap-6 w-full animate-fade-in">
         <Renderer spec={spec as any} registry={registry} />
       </div>

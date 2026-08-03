@@ -24,30 +24,24 @@
   --grey-100: #FFFFFF;
 
   /* Semantic aliases */
-  --color-bg:           var(--grey-100);
-  --color-bg-subtle:    var(--grey-93);
-  --color-bg-muted:     var(--grey-85);
-  --color-border:       var(--grey-85);
-  --color-border-strong: var(--grey-20);
-  --color-text:         var(--grey-0);
-  --color-text-muted:   var(--grey-30);
-  /* PRD §12.9: WCAG AA requires 4.5:1 for normal text.
-   * --grey-50 (#808080) on white = 4.48:1 — FAILS for small/normal text.
-   * --grey-30 (#4D4D4D) on white = 10.58:1 — PASSES all sizes.
-   * --grey-30 (#4D4D4D) on --grey-93 (#EDEDED) = 6.96:1 — PASSES all sizes.
-   * Contrast audit for all grey-on-grey pairings used in this UI:
-   *   grey-0  on grey-100 = 21:1    ✅ AAA
-   *   grey-0  on grey-93  = 17.6:1  ✅ AAA
-   *   grey-10 on grey-100 = 15.3:1  ✅ AAA
-   *   grey-20 on grey-100 = 9.73:1  ✅ AAA
-   *   grey-30 on grey-100 = 10.58:1 ✅ AAA (used for text-muted, text-subtle)
-   *   grey-30 on grey-93  = 6.96:1  ✅ AA+  (used on hover backgrounds)
-   *   grey-50 on grey-100 = 4.48:1  ❌ FAIL normal text, ✅ large text only
-   *   grey-50 on grey-93  = 3.21:1  ❌ FAIL all text sizes
-   *   grey-70 on grey-100 = 2.32:1  ❌ Decorative only (scrollbar)
-   * --grey-50 is intentionally NOT used for text; scrollbar/divider/icons only.
-   */
-  --color-text-subtle:  var(--grey-30);
+  --color-bg:                  var(--grey-100);
+  --color-bg-subtle:           var(--grey-93);
+  --color-bg-muted:            var(--grey-85);
+  --color-surface:             var(--grey-100);
+  --color-surface-hover:       var(--grey-93);
+  --color-surface-secondary:   var(--grey-93);
+  --color-border:              var(--grey-85);
+  --color-border-strong:       var(--grey-0);
+  --color-text:                var(--grey-0);
+  --color-text-muted:          var(--grey-30);
+  --color-text-subtle:         var(--grey-50);
+  --color-primary:             var(--grey-0);
+  --color-primary-fg:          var(--grey-100);
+  --color-primary-hover:       var(--grey-20);
+  --color-secondary:           var(--grey-93);
+  --color-secondary-fg:        var(--grey-0);
+  --color-secondary-hover:     var(--grey-85);
+  --color-overlay:             rgba(0, 0, 0, 0.5);
 
   /* Spacing Scale */
   --space-1:  4px;
@@ -88,6 +82,29 @@
   --transition-fast:   100ms ease;
   --transition-normal: 200ms ease;
   --transition-slow:   350ms ease;
+}
+
+/* Dark Mode Overrides (Strict Greyscale Ramp) */
+.dark {
+  --color-bg:                  var(--grey-0);
+  --color-bg-subtle:           var(--grey-10);
+  --color-bg-muted:            var(--grey-20);
+  --color-surface:             var(--grey-10);
+  --color-surface-hover:       var(--grey-20);
+  --color-surface-secondary:   var(--grey-20);
+  --color-border:              var(--grey-20);
+  --color-border-strong:       var(--grey-85);
+  --color-text:                var(--grey-100);
+  --color-text-muted:          var(--grey-70);
+  --color-text-subtle:         var(--grey-50);
+  --color-primary:             var(--grey-100);
+  --color-primary-fg:          var(--grey-0);
+  --color-primary-hover:       var(--grey-85);
+  --color-secondary:           var(--grey-20);
+  --color-secondary-fg:        var(--grey-100);
+  --color-secondary-hover:     var(--grey-30);
+  --color-overlay:             rgba(0, 0, 0, 0.75);
+  color-scheme: dark;
 }
 
 /* ─── Reset & Base ───────────────────────────────────────────── */
@@ -137,7 +154,7 @@ a {
 }
 a:hover { opacity: 0.7; }
 a:focus-visible {
-  outline: 2px solid var(--grey-0);
+  outline: 2px solid var(--color-text);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
@@ -148,11 +165,12 @@ code, kbd, pre, samp {
 }
 
 pre {
-  background: var(--grey-93);
-  border: 1px solid var(--grey-85);
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: var(--space-4);
   overflow-x: auto;
+  color: var(--color-text);
 }
 
 /* ─── Form Elements ──────────────────────────────────────────── */
@@ -170,11 +188,6 @@ input, textarea, select {
   appearance: none;
 }
 
-input:focus, textarea:focus, select:focus {
-  border-color: var(--grey-0);
-  box-shadow: 0 0 0 2px rgba(0,0,0,0.12);
-}
-
 input::placeholder, textarea::placeholder {
   color: var(--color-text-subtle);
 }
@@ -189,70 +202,47 @@ input:disabled, textarea:disabled, select:disabled {
 button {
   font-family: var(--font-body);
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   border: none;
-  border-radius: var(--radius-sm);
   transition: background-color var(--transition-fast),
               border-color var(--transition-fast),
               opacity var(--transition-fast);
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
   outline: none;
 }
 
 button:focus-visible {
-  outline: 2px solid var(--grey-0);
-  outline-offset: 2px;
+  @apply ring-2 ring-foreground ring-offset-2 ring-offset-background;
 }
 
 button:disabled {
-  opacity: 0.4;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 /* Button variants */
 .btn-primary {
-  background: var(--grey-0);
-  color: var(--grey-100);
-  padding: var(--space-3) var(--space-6);
-  border: 2px solid var(--grey-0);
-}
-.btn-primary:hover:not(:disabled) {
-  background: var(--grey-10);
-  border-color: var(--grey-10);
+  @apply bg-primary text-primary-fg px-6 py-3 rounded-lg hover:bg-primary-hover transition-colors font-bold text-sm border border-border-strong;
 }
 
 .btn-secondary {
-  background: var(--grey-100);
-  color: var(--grey-0);
-  padding: var(--space-3) var(--space-6);
-  border: 2px solid var(--grey-0);
-}
-.btn-secondary:hover:not(:disabled) {
-  background: var(--grey-93);
+  @apply bg-secondary text-secondary-fg px-6 py-3 border border-border rounded-lg hover:bg-secondary-hover transition-colors font-bold text-sm;
 }
 
 .btn-ghost {
-  background: transparent;
-  color: var(--grey-0);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid transparent;
-}
-.btn-ghost:hover:not(:disabled) {
-  background: var(--grey-93);
-  border-color: var(--grey-85);
+  @apply bg-transparent text-foreground px-3 py-2 border border-transparent rounded-lg hover:bg-surface-hover transition-colors font-medium text-sm;
 }
 
 .btn-sm {
-  font-size: var(--text-xs);
-  padding: var(--space-1) var(--space-3);
+  @apply px-3 py-1.5 text-xs;
 }
 
 .btn-lg {
-  font-size: var(--text-base);
-  padding: var(--space-4) var(--space-8);
+  @apply px-8 py-4 text-base;
 }
 
 /* ─── Cards ──────────────────────────────────────────────────── */

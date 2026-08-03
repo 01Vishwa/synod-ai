@@ -49,9 +49,9 @@ export function ConfirmationDialog({
       ref={dialogRef}
       style={{
         padding: 'var(--space-6)',
-        border: '1px solid var(--color-border)',
+        border: '1px solid var(--color-border-strong)',
         borderRadius: 'var(--radius-md)',
-        background: 'var(--color-bg)',
+        background: 'var(--color-surface)',
         color: 'var(--color-text)',
         maxWidth: '400px',
         boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
@@ -60,7 +60,7 @@ export function ConfirmationDialog({
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
         <h3 style={{ margin: 0, fontSize: 'var(--text-lg)' }}>{title}</h3>
-        <div style={{ color: 'var(--color-text-subtle)', fontSize: 'var(--text-base)', lineHeight: 1.5 }}>
+        <div style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-base)', lineHeight: 1.5 }}>
           {description}
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-2)' }}>
@@ -75,7 +75,7 @@ export function ConfirmationDialog({
             type="button" 
             className="btn-primary" 
             onClick={onConfirm}
-            style={isDestructive ? { background: 'var(--grey-0)', color: 'var(--grey-100)' } : undefined}
+            style={isDestructive ? { background: 'var(--color-primary)', color: 'var(--color-primary-fg)' } : undefined}
           >
             {confirmText}
           </button>
@@ -83,7 +83,7 @@ export function ConfirmationDialog({
       </div>
       <style dangerouslySetInnerHTML={{ __html: `
         dialog::backdrop {
-          background: rgba(0, 0, 0, 0.4);
+          background: var(--color-overlay);
           backdrop-filter: blur(2px);
         }
       `}} />

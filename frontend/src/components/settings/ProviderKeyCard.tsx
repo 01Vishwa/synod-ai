@@ -4,6 +4,8 @@ import React, { useState } from 'react';
 import type { Provider, ProviderKeyResponse } from '@/lib/api-client';
 import { providersApi } from '@/lib/api-client';
 import { useToast } from '@/hooks/useToast';
+import { SecureApiKeyInput } from '@/components/ui/SecureApiKeyInput';
+import { apiKeySchema } from '@/lib/validation';
 
 interface ProviderKeyCardProps {
   provider: Provider;
@@ -11,6 +13,7 @@ interface ProviderKeyCardProps {
   description: string;
   providerKey?: ProviderKeyResponse | null;
   onUpdate: () => void;
+  onDelete: (provider: Provider) => Promise<void>;
   retirementWarning?: string;
 }
 
@@ -20,28 +23,61 @@ export function ProviderKeyCard({
   description,
   providerKey,
   onUpdate,
+  onDelete,
   retirementWarning,
 }: ProviderKeyCardProps) {
-  const [isEditing, setIsEditing] = useState(false);
   const [key, setKey] = useState('');
+  const [inlineError, setInlineError] = useState('');
   const [saving, setSaving] = useState(false);
   const [revoking, setRevoking] = useState(false);
-  const { toast } = useToast();
+  const [elapsedSecs, setElapsedSecs] = useState(0);
+  const { toast, updateToast } = useToast();
+
+  const hasKey = !!providerKey;
+  const isConnected = hasKey && providerKey.last_test_ok === true;
+  const cardState = !hasKey ? 'no_key' : isConnected ? 'connected' : 'key_invalid';
+
+  React.useEffect(() => {
+    if (!saving) { setElapsedSecs(0); return; }
+    const id = setInterval(() => setElapsedSecs(s => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [saving]);
+
+  const handleKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setKey(e.target.value);
+    if (inlineError) {
+      setInlineError(''); // clear error when typing
+    }
+  };
 
   async function handleSave() {
-    const trimmedKey = key.trim();
-    if (!trimmedKey) { toast('API key is required.', 'error'); return; }
-    if (trimmedKey.length < 10) { toast('API key is too short.', 'error'); return; }
+    const result = apiKeySchema.safeParse(key);
+    if (!result.success) {
+      setInlineError(result.error.errors[0].message);
+      return;
+    }
 
     setSaving(true);
+    const toastId = toast('Verifying and saving API key...', 'loading', { title: 'Connecting' });
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s
+
     try {
-      await providersApi.saveKey({ provider, api_key: trimmedKey });
+      await providersApi.saveKey({ provider, api_key: result.data }, { signal: controller.signal });
+      clearTimeout(timeoutId);
       setKey('');
-      setIsEditing(false);
-      toast('Successfully connected and saved.', 'success');
+      setInlineError('');
+      updateToast(toastId, 'API key verified successfully.', 'success', { title: 'Connected' });
       onUpdate();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Failed to validate or save key.', 'error');
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        setInlineError("Request timed out. The provider may be slow — try again.");
+        updateToast(toastId, "Request timed out.", 'error', { title: 'Connection Failed' });
+      } else {
+        setInlineError(err.message ?? "Failed to save key.");
+        updateToast(toastId, err.message ?? "Failed to save key.", 'error', { title: 'Connection Failed' });
+      }
     } finally {
       setSaving(false);
     }
@@ -49,92 +85,113 @@ export function ProviderKeyCard({
 
   async function handleRevoke() {
     setRevoking(true);
+    const toastId = toast('Removing API key...', 'loading', { title: 'Revoking' });
     try {
-      await providersApi.revokeKey(provider);
-      setIsEditing(false);
+      await onDelete(provider);
       setKey('');
-      toast('API key revoked.', 'success');
-      onUpdate();
+      setInlineError('');
+      updateToast(toastId, 'API key revoked successfully.', 'success', { title: 'Revoked' });
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Failed to revoke key.', 'error');
+      updateToast(toastId, err instanceof Error ? err.message : 'Failed to revoke key.', 'error', { title: 'Revoke Failed' });
     } finally {
       setRevoking(false);
     }
   }
 
   return (
-    <div className="bg-background border border-border rounded-md p-6 flex flex-col gap-4">
+    <div className="bg-surface border border-border rounded-xl shadow-sm p-6 flex flex-col gap-5">
       {retirementWarning && (
-        <div className="p-3 border-2 border-black rounded-sm bg-grey-10">
-          <p className="m-0 text-sm font-semibold text-white">
+        <div className="p-3 bg-bgSubtle border border-border-strong rounded-lg">
+          <p className="m-0 text-sm font-semibold text-foreground">
             ⚠️ {retirementWarning}
           </p>
         </div>
       )}
 
       <div>
-        <div className="flex justify-between items-center">
-          <h3 className="text-lg font-display font-bold mb-1">{title}</h3>
-          {providerKey ? (
-            <span className="inline-flex items-center font-mono text-xs font-semibold px-2 py-0.5 border border-black rounded-sm bg-background text-foreground whitespace-nowrap">
-              ✓ Connected ({providerKey.key_fingerprint})
+        <div className="flex justify-between items-center mb-1">
+          <h3 className="text-lg font-bold text-foreground">{title}</h3>
+          
+          {cardState === 'connected' && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-black bg-white px-2.5 py-1 border border-black rounded-md">
+              <span>●</span> Connected (Standard)
             </span>
-          ) : (
-            <span className="inline-flex items-center font-mono text-xs font-semibold px-2 py-0.5 border border-border rounded-sm bg-background text-muted whitespace-nowrap">
-              Not connected
+          )}
+          {cardState === 'no_key' && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 bg-white px-2.5 py-1 border border-gray-400 rounded-md">
+              <span>○</span> Not connected
+            </span>
+          )}
+          {cardState === 'key_invalid' && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-black bg-white px-2.5 py-1 border border-black rounded-md">
+              <span>○</span> Key invalid
             </span>
           )}
         </div>
-        <p className="text-sm text-subtle m-0">{description}</p>
+        <p className="text-sm text-gray-500 m-0">{description}</p>
       </div>
 
-      {providerKey && !isEditing ? (
-        <div className="flex gap-3">
-          <button
-            className="bg-black text-white px-5 py-2 border-2 border-black font-semibold text-sm rounded hover:bg-grey-10 transition-colors"
-            onClick={() => setIsEditing(true)}
-          >
-            Update Key
-          </button>
-          <button
-            className="bg-white text-black px-5 py-2 border-2 border-border font-semibold text-sm rounded hover:bg-grey-97 transition-colors disabled:opacity-40"
-            onClick={handleRevoke}
-            disabled={revoking}
-          >
-            {revoking ? 'Revoking…' : 'Revoke'}
-          </button>
-        </div>
-      ) : (
-        <div className="flex gap-3">
-          <input
-            type="password"
-            placeholder={providerKey ? 'Enter new key to replace existing…' : 'Enter API key…'}
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-3 items-center">
+          <SecureApiKeyInput
+            placeholder={cardState === 'key_invalid' ? 'Enter new API key...' : 'Enter API key...'}
             value={key}
-            onChange={(e) => setKey(e.target.value)}
-            className="flex-1 font-mono text-sm bg-background border border-border rounded px-3 py-2 focus:border-black focus:ring-2 focus:ring-black/10 outline-none transition-all placeholder-subtle"
+            onChange={handleKeyChange}
+            className={`flex-1 ${inlineError ? 'border-black focus:ring-black/20' : ''}`}
             onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+            disabled={saving}
           />
-          {providerKey && isEditing && (
+          {cardState === 'connected' && !key ? (
             <button
-              className="px-5 py-2 text-sm font-semibold text-muted hover:text-foreground transition-colors"
-              onClick={() => {
-                setIsEditing(false);
-                setKey('');
-              }}
-              disabled={saving}
+              className="bg-secondary text-secondary-fg border border-border px-6 py-2.5 font-bold text-sm rounded-lg shadow-sm flex items-center justify-center min-w-[100px] opacity-50 cursor-not-allowed"
+              disabled
             >
-              Cancel
+              Connected
+            </button>
+          ) : (
+            <button
+              className="bg-primary text-primary-fg border border-border-strong px-6 py-2.5 font-bold text-sm rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm flex items-center justify-center min-w-[100px]"
+              onClick={handleSave}
+              disabled={!key || saving}
+            >
+              {saving ? (
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 animate-spin text-primary-fg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>Verifying API key...{elapsedSecs > 2 ? ` (${elapsedSecs}s)` : ''}</span>
+                </div>
+              ) : cardState === 'connected' ? 'Update Key' : 'Connect'}
             </button>
           )}
-          <button
-            className="bg-black text-white px-5 py-2 border-2 border-black font-semibold text-sm rounded hover:bg-grey-10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            onClick={handleSave}
-            disabled={!key.trim() || saving}
-          >
-            {saving ? 'Connecting…' : 'Connect'}
-          </button>
         </div>
-      )}
+        
+        {inlineError && (
+          <p className="text-sm font-medium border-l-2 border-black pl-2 mt-2">
+            {inlineError}
+          </p>
+        )}
+
+        {cardState === 'connected' && (
+          <div className="flex flex-col gap-1 mt-1">
+            <p className="text-sm text-gray-500 m-0">Saved key: {providerKey?.key_fingerprint}</p>
+            <p className="text-xs text-gray-500 italic m-0">Verified for standard models — some premium models may still require additional access.</p>
+            <button onClick={handleRevoke} disabled={revoking} className="text-sm text-gray-500 underline text-left hover:text-black self-start w-auto">
+              {revoking ? 'Removing...' : 'Remove key'}
+            </button>
+          </div>
+        )}
+
+        {cardState === 'key_invalid' && (
+          <div className="flex flex-col gap-1 mt-1">
+            <p className="text-sm text-gray-500 m-0">Previous key ({providerKey?.key_fingerprint}) is no longer valid. Enter a new key.</p>
+            <button onClick={handleRevoke} disabled={revoking} className="text-sm text-gray-500 underline text-left hover:text-black self-start w-auto">
+              {revoking ? 'Removing...' : 'Remove key'}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import select
 
 from app.adapters.persistence.models import ProviderKeyModel
@@ -41,6 +41,7 @@ async def upsert_research_key(
         )
 
     encrypted = vault.encrypt(req.api_key)
+    fingerprint = f"\u2022\u2022\u2022\u2022{req.api_key[-4:]}" if len(req.api_key) >= 4 else "\u2022\u2022\u2022\u2022"
 
     stmt = select(ProviderKeyModel).where(
         ProviderKeyModel.user_id == user_id,
@@ -50,17 +51,17 @@ async def upsert_research_key(
     existing = result.scalar_one_or_none()
 
     if existing:
-        existing.encrypted_key = encrypted
-        if req.label:
-            existing.label = req.label
-        existing.is_verified = False
+        existing.ciphertext_b64 = encrypted
+        existing.key_fingerprint = fingerprint
+        existing.last_test_ok = None
+        existing.last_test_error = None
         model = existing
     else:
         model = ProviderKeyModel(
             user_id=user_id,
             provider=req.provider,
-            encrypted_key=encrypted,
-            label=req.label,
+            ciphertext_b64=encrypted,
+            key_fingerprint=fingerprint,
         )
         db.add(model)
 
@@ -82,7 +83,7 @@ async def list_research_keys(
     return result.scalars().all()
 
 
-@router.delete("/{provider}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{provider}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_research_key(
     provider: str,
     user_id: CurrentUserId,
@@ -107,6 +108,7 @@ async def delete_research_key(
 async def test_research_connection(
     provider: str,
     req: TestConnectionRequest,
+    user_id: CurrentUserId,
 ) -> Any:
     """Test a raw API key against a research provider."""
     try:

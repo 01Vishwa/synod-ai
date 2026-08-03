@@ -6,10 +6,12 @@ the OAuth callback, and manually republishing reports.
 """
 from __future__ import annotations
 
+import datetime
 import logging
+import urllib.parse
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 
@@ -85,16 +87,13 @@ async def notion_oauth_callback(
         )
     except Exception as exc:
         logger.error("OAuth callback failed: %s", exc)
-        # Redirect to frontend error page so the user sees a meaningful message
-        return RedirectResponse(f"{frontend_base}/settings/integrations?notion_error={exc}")
+        safe_error = urllib.parse.quote(str(exc)[:200])
+        return RedirectResponse(f"{frontend_base}/settings/integrations?notion_error={safe_error}")
 
     # Encrypt the token for storage
     encrypted = vault.encrypt(access_token)
-    meta = {}
-    if workspace_name:
-        meta["workspace_name"] = workspace_name
-    if parent_page_id:
-        meta["parent_page_id"] = parent_page_id
+    fingerprint = f"••••{access_token[-4:]}" if len(access_token) >= 4 else "••••"
+    now = datetime.datetime.now(datetime.timezone.utc)
 
     # Upsert into DB
     stmt = select(ProviderKeyModel).where(
@@ -105,24 +104,24 @@ async def notion_oauth_callback(
     existing = result.scalar_one_or_none()
 
     if existing:
-        existing.encrypted_key = encrypted
-        existing.label = workspace_name or "Notion Workspace"
-        existing.is_verified = True
-        existing.connection_meta = meta
+        existing.ciphertext_b64 = encrypted
+        existing.key_fingerprint = fingerprint
+        existing.last_test_ok = True
+        existing.last_tested_at = now
+        existing.last_test_error = None
     else:
         model = ProviderKeyModel(
             user_id=user_id,
             provider="notion",
-            encrypted_key=encrypted,
-            label=workspace_name or "Notion Workspace",
-            is_verified=True,
-            connection_meta=meta,
+            ciphertext_b64=encrypted,
+            key_fingerprint=fingerprint,
+            last_test_ok=True,
+            last_tested_at=now,
+            last_test_error=None,
         )
         db.add(model)
 
     await db.flush()
-    # Redirect browser back to frontend confirmation page — the backend has
-    # completed the exchange, now hand off UX back to the frontend.
     return RedirectResponse(f"{frontend_base}/settings/integrations?notion=connected")
 
 
@@ -145,7 +144,7 @@ async def notion_status(
     return model
 
 
-@router.delete("/disconnect", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/disconnect", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def disconnect_notion(
     user_id: CurrentUserId,
     db: DbSession,
@@ -202,9 +201,9 @@ async def manual_publish(
             detail="Notion is not connected. Please connect Notion in settings first."
         )
 
-    access_token = vault.decrypt(model.encrypted_key)
-    meta = model.connection_meta or {}
-    parent_page_id = meta.get("parent_page_id")
+    from app.core.config import settings
+    access_token = vault.decrypt(model.ciphertext_b64)
+    parent_page_id = settings.NOTION_PARENT_PAGE_ID
 
     # 3. Publish
     try:

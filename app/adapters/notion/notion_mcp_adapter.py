@@ -19,7 +19,7 @@ Security:
 
 Prerequisites:
   - Node.js must be available in the PATH (for `npx`).
-  - `langchain-mcp-adapters` and `mcp` must be installed (see requirements.txt).
+  - `langchain-mcp-adapters` and `mcp` must be installed (see pyproject.toml).
 
 MCP server env var:
   The official Notion MCP server reads auth headers from OPENAPI_MCP_HEADERS:

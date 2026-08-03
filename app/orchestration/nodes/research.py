@@ -7,6 +7,7 @@ Updates the `research_digest` field in CouncilState.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from langchain_core.runnables.config import RunnableConfig
@@ -78,6 +79,6 @@ async def research_node(state: CouncilState, config: RunnableConfig) -> dict[str
                 "member_id": "research",
                 "stage": "research",
                 "message": f"Research failed: {exc}",
-                "timestamp": ""  # Ideally ISO string, simplified for brevity
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }]
         }

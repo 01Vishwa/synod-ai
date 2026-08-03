@@ -21,7 +21,7 @@ import logging
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 
@@ -35,7 +35,7 @@ from app.api.v1.schemas.providers import (
     TestConnectionRequest,
     TestConnectionResponse,
 )
-from app.core.exceptions import ProviderError, AuthenticationError
+from app.core.exceptions import ProviderError, AuthenticationError, ProviderTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -158,27 +158,38 @@ async def upsert_provider_key(
     # Validate the plaintext key against the provider before persistence
     try:
         adapter = ProviderAdapterFactory.create(req.provider)
-        is_valid = await adapter.validate_key(api_key)
-        if not is_valid:
-            raise AuthenticationError(
-                message="Connection failed. Please check your API key.",
-                provider=req.provider,
-            )
-    except AuthenticationError as exc:
+        await adapter.validate_key(api_key)
+    except AuthenticationError:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=401,
             detail={
-                "code": "AUTHENTICATION_FAILED",
-                "message": exc.message,
-            },
+                "code": "invalid_api_key",
+                "message": "The API key was rejected by the provider. Please check the key and try again."
+            }
+        )
+    except ProviderTimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "code": "provider_timeout",
+                "message": str(exc.message)
+            }
+        )
+    except ProviderError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "provider_error",
+                "message": str(exc.message)
+            }
         )
     except Exception as exc:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=400,
             detail={
-                "code": "PROVIDER_VALIDATION_ERROR",
-                "message": f"Failed to validate key with provider: {exc}",
-            },
+                "code": "provider_validation_error",
+                "message": f"Failed to validate key with provider: {exc}"
+            }
         )
 
     # ── 2. Encrypt — fail fast if vault is misconfigured ────────────────────
@@ -288,7 +299,7 @@ async def upsert_provider_key(
 
 # ── DELETE /providers/{provider} ─────────────────────────────────────────────
 
-@router.delete("/{provider}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{provider}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_provider_key(
     provider: str,
     user_id: CurrentUserId,
@@ -315,6 +326,7 @@ async def delete_provider_key(
 async def test_connection(
     provider: str,
     req: TestConnectionRequest,
+    user_id: CurrentUserId,
 ) -> Any:
     """Test a raw API key against a provider's inference endpoint (1-token ping)."""
     try:
@@ -377,11 +389,9 @@ async def get_models(
         adapter = ProviderAdapterFactory.create(provider)
         models = await adapter.list_models(api_key)
 
-        # Mark key as tested-ok if we successfully listed models
+        import datetime as _dt
         key_model.last_test_ok = True
-        key_model.last_tested_at = __import__("datetime").datetime.now(
-            __import__("datetime").timezone.utc
-        )
+        key_model.last_tested_at = _dt.datetime.now(_dt.timezone.utc)
         key_model.last_test_error = None
         await db.flush()
 

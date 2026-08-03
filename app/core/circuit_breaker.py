@@ -28,11 +28,16 @@ from enum import Enum, auto
 from dataclasses import dataclass, field
 from typing import Any, Callable, Coroutine, TypeVar
 
+from cachetools import TTLCache
+
 from app.core.exceptions import CircuitOpenError, AuthenticationError
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+_BREAKER_CACHE_MAX = 2048
+_BREAKER_TTL_SECONDS = 600  # 10 minutes
 
 
 # ── State enum ────────────────────────────────────────────────────────────
@@ -129,10 +134,10 @@ class CircuitBreaker:
             logger.warning("Circuit OPENED for provider '%s'.", self.provider)
 
     def _record_success(self) -> None:
-        self._state = CircuitState.CLOSED
-        self._failure_count = 0
         if self._state != CircuitState.CLOSED:
             logger.info("Circuit CLOSED for provider '%s'.", self.provider)
+        self._state = CircuitState.CLOSED
+        self._failure_count = 0
 
     def reset(self) -> None:
         """Force-reset to CLOSED (used in tests and manual recovery flows)."""
@@ -143,7 +148,10 @@ class CircuitBreaker:
 
 # ── Registry (Singleton per process) ─────────────────────────────────────
 
-_breakers: dict[tuple[str, str], CircuitBreaker] = {}
+_breakers: TTLCache[tuple[str, str], CircuitBreaker] = TTLCache(
+    maxsize=_BREAKER_CACHE_MAX,
+    ttl=_BREAKER_TTL_SECONDS,
+)
 _registry_lock = asyncio.Lock()
 
 

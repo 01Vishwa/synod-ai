@@ -11,9 +11,9 @@ export function ErrorPanel({ title, description, children }: ErrorPanelProps) {
     <div
       role="alert"
       style={{
-        border: '2px solid var(--grey-0)',
-        background: 'var(--grey-0)',
-        color: 'var(--grey-100)',
+        border: '2px solid var(--color-border-strong)',
+        background: 'var(--color-surface)',
+        color: 'var(--color-text)',
         padding: 'var(--space-6)',
         borderRadius: 'var(--radius-md)',
         display: 'flex',

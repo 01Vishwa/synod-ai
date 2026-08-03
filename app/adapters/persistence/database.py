@@ -47,11 +47,16 @@ def _build_async_url(sync_url: str) -> str:
     return url
 
 
-def create_engine() -> AsyncEngine:
+def _create_engine() -> AsyncEngine:
     """
     Build the process-level async engine with connection pool settings
     drawn from Settings.
     """
+    if not settings.DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL is not configured. Set it in your .env file or environment. "
+            "Example: DATABASE_URL=postgresql://user:pass@host:5432/dbname"
+        )
     async_url = _build_async_url(settings.DATABASE_URL)
     return create_async_engine(
         async_url,
@@ -61,16 +66,55 @@ def create_engine() -> AsyncEngine:
         pool_pre_ping=True,          # verify connections before use
         echo=settings.is_development,  # SQL echo in dev only
         future=True,
+        # Disable prepared statement cache — required when using Supabase
+        # Transaction Pooler (PgBouncer in transaction mode), which does not
+        # support server-side prepared statements.
+        connect_args={"prepared_statement_cache_size": 0},
     )
 
 
-# Module-level singletons — initialised at first import; safe for multi-threaded use.
-engine: AsyncEngine = create_engine()
-async_session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
-    engine,
-    expire_on_commit=False,   # keep ORM objects usable after commit
-    autoflush=False,
-)
+# Lazy-initialised singletons — created on first access so importing this
+# module for type-checking or tests doesn't require a live DATABASE_URL.
+_engine: AsyncEngine | None = None
+_async_session_factory: async_sessionmaker[AsyncSession] | None = None
+
+
+def get_engine() -> AsyncEngine:
+    """Return the process-level async engine, creating it on first call."""
+    global _engine
+    if _engine is None:
+        _engine = _create_engine()
+    return _engine
+
+
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Return the process-level session factory, creating it on first call."""
+    global _async_session_factory
+    if _async_session_factory is None:
+        _async_session_factory = async_sessionmaker(
+            get_engine(),
+            expire_on_commit=False,
+            autoflush=False,
+        )
+    return _async_session_factory
+
+
+# Backwards-compatible module-level accessors (properties aren't possible at
+# module level, so we use a lazy wrapper object).
+class _LazyEngineProxy:
+    """Proxy that defers engine creation until first use."""
+    def __getattr__(self, name: str):
+        return getattr(get_engine(), name)
+
+class _LazySessionFactoryProxy:
+    """Proxy that defers session factory creation until first use."""
+    def __call__(self, *args, **kwargs):
+        return get_session_factory()(*args, **kwargs)
+    def __getattr__(self, name: str):
+        return getattr(get_session_factory(), name)
+
+engine: AsyncEngine = _LazyEngineProxy()  # type: ignore[assignment]
+async_session_factory: async_sessionmaker[AsyncSession] = _LazySessionFactoryProxy()  # type: ignore[assignment]
 
 
 # ── Session dependency ────────────────────────────────────────────────────
@@ -113,12 +157,16 @@ async def create_all_tables() -> None:
     Called from main.py startup hook in development. In production, use
     Alembic migrations instead (`alembic upgrade head`).
     """
-    async with engine.begin() as conn:
+    async with get_engine().begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables verified / created.")
 
 
 async def dispose_engine() -> None:
     """Cleanly close all pooled connections (called on app shutdown)."""
-    await engine.dispose()
-    logger.info("Database engine disposed.")
+    global _engine, _async_session_factory
+    if _engine is not None:
+        await _engine.dispose()
+        _engine = None
+        _async_session_factory = None
+        logger.info("Database engine disposed.")

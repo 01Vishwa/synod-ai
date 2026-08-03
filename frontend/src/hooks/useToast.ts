@@ -1,15 +1,23 @@
 import { createContext, useContext } from 'react';
 
-export type ToastType = 'success' | 'error' | 'info';
+export type ToastType = 'success' | 'error' | 'info' | 'warning' | 'loading';
+
+export interface ToastOptions {
+  title?: string;
+  duration?: number; // 0 means infinite
+}
 
 export interface Toast {
   id: string;
   message: string;
+  title?: string;
   type: ToastType;
+  duration?: number;
 }
 
 export interface ToastContextType {
-  toast: (message: string, type?: ToastType) => void;
+  toast: (message: string, type?: ToastType, options?: ToastOptions) => string;
+  updateToast: (id: string, message: string, type?: ToastType, options?: ToastOptions) => void;
   removeToast: (id: string) => void;
 }
 
